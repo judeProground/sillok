@@ -4,7 +4,7 @@
 
   "repo": "",
   "baseBranch": "main",
-  "branchPrefix": "feat/",
+  "branchPrefix": "{type}/issue-",
 
   "worktree": {
     "enabled": true,
