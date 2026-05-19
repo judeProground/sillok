@@ -1,7 +1,87 @@
 # Sillok
 
-> **Sillok** (實錄, 실록) means "veritable records" — the authoritative chronicles of the Joseon Dynasty, registered with UNESCO Memory of the World. This plugin applies the same idea to a codebase: every feature is brainstormed, recorded as a spec, chronicled through implementation, and sealed into `main` as the project's true record.
+> **Sillok** (實錄, 실록) means "veritable records" — the authoritative chronicles of the Joseon Dynasty, registered with UNESCO Memory of the World. This Claude Code plugin applies the same idea to a codebase: every feature is brainstormed, recorded as a spec, chronicled through implementation, and sealed into `main` as the project's true record.
 
-Spec-driven feature chronicle for Claude Code, tracked by GitHub issues.
+**Spec-driven feature development, tracked by GitHub issues.**
 
-Full README content lands in v1.0.0 — see `CHANGELOG.md`.
+A GitHub issue is the canonical record of one feature. Its body holds the spec inline (so anyone can read it on GitHub without checking out the repo). A linked plan, a branch on a worktree, a series of commits, and finally a PR — every artifact threads back to that one issue. The issue label flips through `todo → designed → in-progress → in-review` as the work moves.
+
+The plugin is built around five workflow commands plus one bootstrap command. They preserve a proven pipeline structure (issue creation, design brainstorming with spec inlining, plan generation with subagent-driven execution, end-of-plan whole-branch verification, PR creation) and connect them through a single per-project configuration file.
+
+## Install
+
+Requires Claude Code, `gh` CLI authenticated against your GitHub account, and `jq`.
+
+```bash
+/plugin marketplace add judeProground/sillok
+/plugin install sillok@sillok
+```
+
+Then in any project:
+
+```bash
+cd /path/to/your-project
+/sillok-init
+```
+
+`/sillok-init` is zero-prompt: it detects your repo, base branch, package manager, branch prefix, and gitignored config files automatically, writes `.claude/sillok/workflow.config.json`, scaffolds six rule files under `.claude/sillok/rules/`, appends import lines to your `CLAUDE.md`, and creates 14 default labels on the GitHub repo. Edit the config file if anything detected wrong.
+
+## Workflow
+
+```
+/sillok-start    # create GH issue + branch + worktree (cut from base branch)
+/sillok-design   # brainstorm + write spec → label `designed`
+/sillok-execute  # write plan + dispatch subagent-driven execution → label `in-progress`
+/sillok-end      # open PR (Closes #N) → label `in-review`
+                 # squash-merge auto-closes the issue
+```
+
+For multi-PR work (an epic with sub-issues), use `/sillok-epic` to create the parent and then `/sillok-start --parent <epic-N>` for each sub-issue.
+
+## Config
+
+`.claude/sillok/workflow.config.json` is the only file the plugin reads from your project. It records:
+
+- `repo` — `owner/name` for the GitHub repo
+- `baseBranch` — branch new feature branches are cut from
+- `branchPrefix` — e.g. `feat/`, `username/`
+- `worktree.{enabled,dir,copyFiles}` — worktree behavior and what gitignored files to copy into new worktrees
+- `install` — command run after a worktree is created (e.g. `pnpm install`)
+- `verify.{lint,typecheck,format}` — commands the verify-gate runs (empty = skip that step)
+- `docs.{specs,plans}` — where spec and plan files live
+- `commit.coAuthor` — optional commit trailer
+- `milestone.{naming,sprintWeeks,weekStart}` — sprint milestone convention
+- `labels.{types,stages,priorities,defaults}` — label taxonomy
+
+A JSON Schema (`schema/v1.json`) is referenced from the config via `$schema` so editors offer validation.
+
+## Skills bundled
+
+- `sillok:verify-gate` — whole-branch verification (lint/typecheck/format auto-fix → code review)
+- `sillok:verify-spec-gate` — spec compliance reference (patterns, principles, smells)
+- `sillok:gh-issue-management` — canonical GitHub-issue procedure
+
+## Files in your project after `/sillok-init`
+
+```
+your-project/
+├── .claude/sillok/
+│   ├── workflow.config.json
+│   └── rules/
+│       ├── sillok-workflow.md
+│       ├── gh-issue-conventions.md
+│       ├── pr-convention.md
+│       ├── commit-conventions.md
+│       ├── worktree-setup.md
+│       └── spec-driven-development.md
+├── docs/superpowers/
+│   ├── specs/
+│   └── plans/
+└── CLAUDE.md  # @-import block appended
+```
+
+Everything sillok owns is under `.claude/sillok/`. Your own `.claude/rules/`, `.claude/commands/`, etc. are not touched.
+
+## License
+
+MIT. See [LICENSE](./LICENSE).
