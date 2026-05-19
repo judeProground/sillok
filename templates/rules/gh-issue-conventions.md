@@ -146,6 +146,10 @@ Epics are parent tracking issues (≥3 sub-issues, must carry the `epic` label).
 ```markdown
 <1-line summary>
 
+## Integration branch                     <!-- filled by /sillok-epic; do not hand-edit -->
+
+`epic/issue-<N>-<slug>`
+
 ## Architecture                           <!-- optional, link the design spec -->
 
 - <docs.specs>/<date>-<slug>.md

@@ -40,3 +40,23 @@ Every `/sillok-start` creates `.worktrees/<N>-<slug>` and bases the branch on `o
 - Don't `gh issue create` directly — use `/sillok-start` so labels, milestone, parent linking, and worktree all happen together.
 - Don't manually flip stage labels — let the commands do it.
 - Don't open PRs via `gh pr create` — use `/sillok-end` so the body uses the convention and `Closes #N` auto-closes on merge.
+
+## Epic = integration branch
+
+Every epic gets a real branch (`epic/issue-<N>-<slug>`) and a worktree, not just a tracking issue. Sub-features under an epic cut from and PR back to the integration branch. The epic itself merges to the configured `baseBranch` (usually `main`) with a **merge commit** — not a squash — so sub-feature commits remain visible in the base-branch history.
+
+You can either start an epic up front:
+
+```bash
+/sillok-epic     # on main or any non-sillok branch → creates epic from scratch
+```
+
+…or promote a feature that grew too big:
+
+```bash
+/sillok-start    # creates feature/issue-43-foo as usual
+# ...halfway through, you realize the work needs sub-features
+/sillok-epic     # from inside feature/issue-43-foo → offers promotion
+```
+
+After promotion, `feature/issue-43-foo` becomes `epic/issue-43-foo`, the issue label flips to `epic`, the body is rewritten to the epic template, and any work-in-progress in the worktree can optionally be split into its own sub-feature branch.
