@@ -36,7 +36,30 @@ cd /path/to/your-project
                  # squash-merge auto-closes the issue
 ```
 
-For multi-PR work (an epic with sub-issues), use `/sillok-epic` to create the parent and then `/sillok-start --parent <epic-N>` for each sub-issue.
+For multi-PR work (an epic with sub-issues), sillok uses an **integration branch** model: every epic gets a real branch (`epic/issue-<N>-<slug>`) plus a worktree. Sub-features cut from and PR back to the integration branch; the epic itself merges to base with a merge commit (preserving sub-feature commits).
+
+## Epic flow
+
+```
+/sillok-epic                          # on main → creates epic + integration branch + worktree
+cd .worktrees/<epic-slug>
+/sillok-start --parent <epic-N>       # sub-feature cuts from the epic branch
+# ... work, PR sub-feature to epic ...
+/sillok-start --parent <epic-N>       # another sub-feature
+# ... when all sub-features are merged into the epic ...
+cd .worktrees/<epic-slug>
+/sillok-end                           # opens epic→main PR with merge-commit recommendation
+```
+
+**Promotion path** (starts as a normal feature, grows too big):
+
+```
+/sillok-start                         # feature/issue-43-foo
+# ... halfway through realize it needs sub-features ...
+/sillok-epic                          # detects feature context → offers promotion of #43
+# After confirming: branch renames to epic/issue-43-foo, label flips, integration branch ready.
+/sillok-start --parent 43             # add sub-feature(s)
+```
 
 ## Config
 
@@ -44,7 +67,7 @@ For multi-PR work (an epic with sub-issues), use `/sillok-epic` to create the pa
 
 - `repo` — `owner/name` for the GitHub repo
 - `baseBranch` — branch new feature branches are cut from
-- `branchPrefix` — e.g. `feat/`, `username/`
+- `branchPrefix` — template, e.g. `{type}/issue-` (default), `{user}/issue-`, or a literal like `feat/`. `{type}` resolves to the issue's type label (`feature`/`bug`/`improvement`/`infra`/`epic`); `{user}` resolves to your git user name.
 - `worktree.{enabled,dir,copyFiles}` — worktree behavior and what gitignored files to copy into new worktrees
 - `install` — command run after a worktree is created (e.g. `pnpm install`)
 - `verify.{lint,typecheck,format}` — commands the verify-gate runs (empty = skip that step)
