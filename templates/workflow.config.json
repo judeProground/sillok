@@ -1,0 +1,48 @@
+{
+  "$schema": "https://raw.githubusercontent.com/judeProground/sillok/main/schema/v1.json",
+  "version": 1,
+
+  "repo": "",
+  "baseBranch": "main",
+  "branchPrefix": "feat/",
+
+  "worktree": {
+    "enabled": true,
+    "dir": ".worktrees",
+    "copyFiles": []
+  },
+
+  "install": "",
+
+  "verify": {
+    "lint": "",
+    "typecheck": "",
+    "format": ""
+  },
+
+  "docs": {
+    "specs": "docs/superpowers/specs",
+    "plans": "docs/superpowers/plans"
+  },
+
+  "commit": {
+    "coAuthor": ""
+  },
+
+  "milestone": {
+    "naming": "YYYY-MM-Wn",
+    "sprintWeeks": 2,
+    "weekStart": "monday"
+  },
+
+  "labels": {
+    "types": ["feature", "bug", "improvement", "infra", "epic"],
+    "stages": ["backlog", "todo", "designed", "in-progress", "in-review"],
+    "priorities": ["p1", "p2", "p3", "p4"],
+    "defaults": {
+      "type": "feature",
+      "stage": "todo",
+      "priority": "p3"
+    }
+  }
+}
