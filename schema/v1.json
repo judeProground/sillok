@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/judeProground/sillok/main/schema/v1.json",
+  "title": "Sillok workflow configuration",
+  "type": "object",
+  "required": ["version", "repo", "baseBranch", "branchPrefix"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1 },
+    "repo": {
+      "type": "string",
+      "pattern": "^[^/]+/[^/]+$",
+      "description": "GitHub repository slug in '<owner>/<name>' form."
+    },
+    "baseBranch": {
+      "type": "string",
+      "description": "The branch new feature branches are cut from. Usually 'main'."
+    },
+    "branchPrefix": {
+      "type": "string",
+      "description": "Prefix prepended to feature branches before the slug, e.g. 'feat/'."
+    },
+    "worktree": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "dir": { "type": "string", "default": ".worktrees" },
+        "copyFiles": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Gitignored files copied from the main worktree into each feature worktree."
+        }
+      }
+    },
+    "install": { "type": "string", "description": "Command run inside a fresh worktree to install dependencies." },
+    "verify": {
+      "type": "object",
+      "properties": {
+        "lint": { "type": "string" },
+        "typecheck": { "type": "string" },
+        "format": { "type": "string" }
+      },
+      "description": "Verification commands. Empty strings cause the verify-gate to skip that step silently."
+    },
+    "docs": {
+      "type": "object",
+      "properties": {
+        "specs": { "type": "string", "default": "docs/superpowers/specs" },
+        "plans": { "type": "string", "default": "docs/superpowers/plans" }
+      }
+    },
+    "commit": {
+      "type": "object",
+      "properties": {
+        "coAuthor": { "type": "string" }
+      }
+    },
+    "milestone": {
+      "type": "object",
+      "properties": {
+        "naming": { "type": "string", "default": "YYYY-MM-Wn" },
+        "sprintWeeks": { "type": "integer", "minimum": 1, "default": 2 },
+        "weekStart": { "type": "string", "enum": ["monday", "sunday"], "default": "monday" }
+      }
+    },
+    "labels": {
+      "type": "object",
+      "properties": {
+        "types": { "type": "array", "items": { "type": "string" } },
+        "stages": { "type": "array", "items": { "type": "string" } },
+        "priorities": { "type": "array", "items": { "type": "string" } },
+        "defaults": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string" },
+            "stage": { "type": "string" },
+            "priority": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}
