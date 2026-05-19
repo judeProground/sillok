@@ -132,6 +132,16 @@ for src in "${CLAUDE_PLUGIN_ROOT}/templates/rules/"*.md; do
 done
 ```
 
+## Step 7b: Write command shortcut shims
+
+Plugin slash commands are namespaced by Claude Code (`/sillok:sillok-start` and friends). To also let the user type the shorter `/sillok-start`, install standalone-style shim files into the project's `.claude/commands/`. The shims are pointer-only — they resolve the latest installed plugin version at invocation time and delegate to the canonical command.
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/write-shim-commands.sh" "$PROJECT_ROOT"
+```
+
+The script is idempotent: it overwrites shims it manages (those carrying `sillok-shim: true` in frontmatter) and leaves any foreign file at `.claude/commands/sillok-*.md` untouched. The user remains free to author their own commands at any other name without sillok interference.
+
 ## Step 8: Append `CLAUDE.md` imports
 
 ```bash
@@ -181,6 +191,7 @@ Stack:         <one of pnpm/yarn/npm/bun/bundler/go/cargo/poetry/pipenv or "unkn
 Created:
 - .claude/sillok/workflow.config.json
 - .claude/sillok/rules/* (N files, M skipped: <skipped list>)
+- .claude/commands/sillok-{start,design,execute,end,epic}.md (shim shortcuts)
 - CLAUDE.md (appended Sillok import block)
 - <SPEC_DIR>/ and <PLAN_DIR>/ (ensured)
 - Labels on <REPO> (or "skipped — set repo first")
@@ -194,6 +205,7 @@ Next: /sillok-start to create your first feature.
 
 Re-running `/sillok-init` must:
 - Skip rule files that already exist (do NOT overwrite)
+- Refresh shim command files that carry `sillok-shim: true` (so a plugin upgrade can update the shim format); leave foreign `.claude/commands/sillok-*.md` files untouched
 - Skip CLAUDE.md import-block append if the marker is already present
 - Skip label creation for labels that already exist (handled by `bootstrap-labels.sh` with `|| true`)
 - Leave `workflow.config.json` alone if it already exists (report "config already present — edit manually to update")

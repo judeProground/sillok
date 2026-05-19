@@ -14,6 +14,17 @@ GitHub-Issue-driven feature pipeline. Always use these slash commands instead of
 
 Stage labels (`todo`/`designed`/`in-progress`/`in-review`) are flipped by the commands — do not edit by hand.
 
+## Command invocation forms
+
+Every sillok command can be invoked two ways:
+
+| Form | Where it comes from | Notes |
+|------|--------------------|-------|
+| `/sillok-start` | `.claude/commands/sillok-*.md` shim (installed by `/sillok-init`) | Recommended for daily use. Resolves to the latest installed plugin version at runtime. |
+| `/sillok:sillok-start` | Plugin command (namespaced by Claude Code) | Canonical form. Always works, even if shim files were deleted. |
+
+The shim files carry a `sillok-shim: true` frontmatter marker so re-running `/sillok-init` can refresh them safely without clobbering your own custom commands. If you have your own command at the same name (no marker), sillok skips it.
+
 ## When to use which
 
 | Situation | Command |
