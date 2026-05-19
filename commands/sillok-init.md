@@ -48,15 +48,13 @@ eval "$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/detect-stack.sh" "$PROJECT_ROOT")"
 
 If `install` is empty, set a warning flag noting "unknown stack — fill verify.* manually".
 
-## Step 4: Compute branch prefix
+## Step 4: Branch prefix default
 
 ```bash
-USERNAME=$(git config user.name | awk '{print tolower($1)}' | tr -cd '[:alnum:]')
-if [[ -n "$USERNAME" ]]; then
-  BRANCH_PREFIX="${USERNAME}/issue-"
-else
-  BRANCH_PREFIX="feat/"
-fi
+# The default template uses {type}/issue-, which substitutes to feature/issue-,
+# bug/issue-, epic/issue-, etc. at branch-creation time. Users can override to
+# any literal or templated string by editing workflow.config.json.
+BRANCH_PREFIX="{type}/issue-"
 ```
 
 ## Step 5: Detect worktree copy files
