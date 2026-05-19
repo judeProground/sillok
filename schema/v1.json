@@ -18,7 +18,8 @@
     },
     "branchPrefix": {
       "type": "string",
-      "description": "Prefix prepended to feature branches before the slug, e.g. 'feat/'."
+      "description": "Prefix prepended to feature branches before the slug. Supports {type} (issue type label) and {user} (git user.name, alphanumeric lowercase) placeholders. Default: '{type}/issue-' produces 'feature/issue-42-add-x', 'epic/issue-42-add-x', etc. A literal string with no placeholders produces the same prefix for every branch.",
+      "examples": ["{type}/issue-", "{user}/{type}-", "feat/"]
     },
     "worktree": {
       "type": "object",
