@@ -6,6 +6,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-05-19
+
+### Fixed
+
+- Manifest version bump. v1.1.0 shipped with the correct file content but left `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` reporting `"version": "1.0.0"`, which made `/plugin marketplace update` see no upgrade. This release bumps both manifest version fields so Claude Code recognizes the new release. No behavioral changes vs. 1.1.0.
+
 ## [1.1.0] - 2026-05-19
 
 ### Added
