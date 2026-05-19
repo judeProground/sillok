@@ -109,21 +109,51 @@ bash ${CLAUDE_PLUGIN_ROOT}/scripts/slug-from-title.sh <N> "<title>"
 
 The script outputs `<N>-<title-slug>` (e.g. `79-add-haptic-feedback-to-record-button`). The title-slug is lowercased, has articles (`a`/`an`/`the`) and non-alphanumeric runs collapsed to hyphens, and is truncated to ≤40 chars at the last hyphen. Capture the output as `<slug>`.
 
-- **Branch:** `${BRANCH_PREFIX}<slug>`  (because `<slug>` already starts with the issue number, this resolves to `${BRANCH_PREFIX}<N>-<title-slug>` per the rule in `gh-issue-conventions.md`)
+**Resolve the templated branch prefix** before constructing the final branch name:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/config.sh"
+# <type> is the confirmed type label from step 6 (e.g. "feature", "bug").
+user_token=$(git config user.name | awk '{print tolower($1)}' | tr -cd '[:alnum:]')
+RESOLVED_PREFIX=$(sillok_branch_prefix_resolve "<type>" "$user_token")
+```
+
+- **Branch:** `${RESOLVED_PREFIX}<slug>` — e.g. `feature/issue-42-add-volume-cap`, `bug/issue-67-fix-pause-timer`
 
 Print the branch for user confirmation: "Branch will be `<branch>`. OK? (yes / change)". On `change`, prompt for replacement title-slug — re-run the script with the new title or accept a hand-typed slug.
+
+## Step 9b: Determine base branch (parent integration awareness)
+
+If a parent was selected in step 4, check whether the parent epic has an integration branch and cut from there instead of the configured base branch.
+
+```bash
+if [[ -n "<parent-N>" ]]; then
+  parent_body=$(gh issue view "<parent-N>" --repo "$REPO" --json body --jq '.body')
+  integration_branch=$(echo "$parent_body" \
+    | awk '/^## Integration branch/{flag=1; next} /^## /{flag=0} flag && /^`/{gsub("`",""); print; exit}')
+  if [[ -n "$integration_branch" ]]; then
+    BASE_BRANCH="$integration_branch"
+    echo "Cutting from parent's integration branch: $integration_branch"
+  else
+    BASE_BRANCH=$(sillok_config baseBranch)
+    echo "Parent #<parent-N> has no integration branch — falling back to $BASE_BRANCH"
+  fi
+else
+  BASE_BRANCH=$(sillok_config baseBranch)
+fi
+```
 
 ## Step 10: Create worktree (always; no opt-out)
 
 Run the worktree setup script from the project root:
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/setup-feature-worktree.sh <slug> <branch>
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/setup-feature-worktree.sh <slug> <branch> "$BASE_BRANCH"
 ```
 
 The script:
-1. Fetches `origin/<baseBranch>` (configured).
-2. Creates `<worktreeDir>/<slug>` on `<branch>` based on `origin/<baseBranch>` (NOT on the calling branch — even if invoked from an umbrella branch, the new feature branch starts fresh from base).
+1. Fetches `origin/$BASE_BRANCH` (resolved in step 9b — either the parent's integration branch or the configured base branch).
+2. Creates `<worktreeDir>/<slug>` on `<branch>` based on `origin/$BASE_BRANCH`.
 3. Copies the gitignored config files listed in `worktree.copyFiles` (configured).
 4. Runs the configured `install` command inside the worktree (if set).
 

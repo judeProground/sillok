@@ -6,8 +6,8 @@
 # usage: setup-feature-worktree.sh <slug> <branch>
 set -euo pipefail
 
-if [[ $# -ne 2 ]]; then
-  echo "usage: $0 <slug> <branch>" >&2
+if [[ $# -lt 2 || $# -gt 3 ]]; then
+  echo "usage: $0 <slug> <branch> [base_branch]" >&2
   exit 1
 fi
 
@@ -17,8 +17,13 @@ source "$SCRIPT_DIR/lib/config.sh"
 
 slug="$1"
 branch="$2"
+BASE_BRANCH_OVERRIDE="${3:-}"
 
-BASE_BRANCH=$(sillok_config_required baseBranch)
+if [[ -n "$BASE_BRANCH_OVERRIDE" ]]; then
+  BASE_BRANCH="$BASE_BRANCH_OVERRIDE"
+else
+  BASE_BRANCH=$(sillok_config_required baseBranch)
+fi
 WORKTREE_DIR=$(sillok_config worktree.dir)
 WORKTREE_DIR=${WORKTREE_DIR:-.worktrees}
 INSTALL=$(sillok_config install)
