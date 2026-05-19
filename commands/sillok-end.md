@@ -24,6 +24,31 @@ Read the markdown block. Show it back to the user as the current state summary.
   - Include `Closes #<parent>` IF this PR is the LAST sub-issue going `in-review` (epic-completing).
 - **Other branch**: ABORT.
 
+### Mode: epic-finalize (precompute reported)
+
+If precompute output contains `### Mode: epic-finalize`, the current branch IS the integration branch for an epic. Set `MODE=epic-finalize` and use the epic-finalize PR body (Step 5b below). The PR base is the configured `baseBranch`.
+
+### Base-branch resolution
+
+For non-epic-finalize PRs, the PR base depends on whether the active issue has a parent epic with an integration branch:
+
+```bash
+PR_BASE=$(sillok_config baseBranch)   # default = configured baseBranch (usually main)
+if [[ "$MODE" == "single-issue" || "$MODE" == "umbrella" ]]; then
+  parent_n=$(gh issue view "$N" --repo "$REPO" --json body --jq '.body' | grep -oE '^Parent: #[0-9]+' | head -1 | sed 's/Parent: #//')
+  if [[ -n "$parent_n" ]]; then
+    parent_body=$(gh issue view "$parent_n" --repo "$REPO" --json body --jq '.body')
+    integration_branch=$(echo "$parent_body" \
+      | awk '/^## Integration branch/{flag=1; next} /^## /{flag=0} flag && /^`/{gsub("`",""); print; exit}')
+    if [[ -n "$integration_branch" ]]; then
+      PR_BASE="$integration_branch"
+    fi
+  fi
+fi
+```
+
+For epic-finalize mode, `PR_BASE=$(sillok_config baseBranch)` directly — no parent lookup.
+
 ## Step 2: Pre-conditions
 
 All checks below were already performed by precompute (step 1). Apply the results:
@@ -82,11 +107,54 @@ The Summary section is critical:
 
 Write 2–3 substantive sentences here, not a 1-line summary.
 
+## Step 5b: Epic-finalize PR body (only when MODE=epic-finalize)
+
+When the current branch is `epic/issue-<N>-<slug>`, the PR body uses a different shape.
+
+**Empty-epic guard:** precompute already reported the number of open + closed sub-issues. If `Empty epic: no sub-features ever created.` appears in precompute output, ABORT — do not open a PR with only `Closes #<epic-N>`. Tell the user: "Empty epic — no sub-features merged in. Either run /sillok-start --parent $N to add work, or close the epic issue manually."
+
+Otherwise:
+
+```bash
+# precompute-end already lists the open sub-issues under "### Open sub-issues to close with this PR"
+closes_lines="Closes #$N"
+while IFS= read -r sub_line; do
+  sub_n=$(echo "$sub_line" | grep -oE '#[0-9]+' | head -1 | tr -d '#')
+  [[ -n "$sub_n" ]] && closes_lines+=$'\n'"Closes #$sub_n"
+done < <(echo "$precompute_output" | awk '/^### Open sub-issues to close with this PR/{flag=1; next} /^### /{flag=0} flag && /^- #/')
+
+sub_features_bullets=$(echo "$precompute_output" | awk '/^### Open sub-issues to close with this PR/{flag=1; next} /^### /{flag=0} flag && /^- #/{print}')
+
+PR_BODY=$(cat <<EOF
+$closes_lines
+
+## Summary
+
+<2–3 lines: what this epic accomplishes overall. The integration branch already has clean per-sub-feature commits; with --merge they remain visible on the base branch.>
+
+## Sub-features
+
+$sub_features_bullets
+
+## Recommended merge
+
+Use \`gh pr merge --merge\` (a merge commit) rather than \`--squash\`. This epic was assembled on the integration branch with each sub-feature already squashed into a single commit. Merging keeps those sub-feature commits visible in $PR_BASE's history; squashing would flatten them into one giant blob.
+
+## Test plan
+
+- [ ] <items aggregated from acceptance criteria across all sub-feature specs>
+EOF
+)
+```
+
+PR title: epic issue's title with `(#<N>)` appended (same as single-issue mode).
+
 ## Step 6: Create the PR
 
 ```bash
 gh pr create \
-  --base main \
+  --repo "$REPO" \
+  --base "$PR_BASE" \
   --head <branch> \
   --title "<active issue title> (#<N>)" \
   --body "$PR_BODY"
