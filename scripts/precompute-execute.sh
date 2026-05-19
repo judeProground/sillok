@@ -45,10 +45,21 @@ elif [[ -n "$expected_worktree" ]]; then
 fi
 
 # Mode detection
-ESCAPED_PREFIX=$(printf '%s' "$BRANCH_PREFIX" | sed -e 's/[]\/$*.^[]/\\&/g')
-if [[ "$branch" =~ ^${ESCAPED_PREFIX}([0-9]+)-(.+)$ ]]; then
-  n="${BASH_REMATCH[1]}"
-  slug="${BASH_REMATCH[2]}"
+prefix_regex=$(sillok_branch_prefix_regex)
+if [[ -n "$prefix_regex" && "$branch" =~ ^${prefix_regex}([0-9]+)-(.+)$ ]]; then
+  # Walk BASH_REMATCH from index 1: find first numeric (issue#) and the next capture (slug).
+  n=""
+  slug=""
+  seen_n=0
+  for cap in "${BASH_REMATCH[@]:1}"; do
+    if [[ "$seen_n" == "0" && "$cap" =~ ^[0-9]+$ ]]; then
+      n="$cap"
+      seen_n=1
+    elif [[ "$seen_n" == "1" ]]; then
+      slug="$cap"
+      break
+    fi
+  done
   echo
   echo "### Mode: single-issue"
   echo "- Issue #: $n"

@@ -29,10 +29,18 @@ echo "## precomputed state for /sillok-start"
 echo
 echo "- Current branch: \`$branch\`"
 
-# Abort hint: already mid-feature on another issue
-ESCAPED_PREFIX=$(printf '%s' "$BRANCH_PREFIX" | sed -e 's/[]\/$*.^[]/\\&/g')
-if [[ "$branch" =~ ^${ESCAPED_PREFIX}([0-9]+)- ]]; then
-  echo "- ABORT: already on issue branch for #${BASH_REMATCH[1]} — finish or stash before starting a new feature"
+# Abort hint: already mid-feature on another issue (any sillok type)
+prefix_regex=$(sillok_branch_prefix_regex)
+if [[ -n "$prefix_regex" && "$branch" =~ ^${prefix_regex}([0-9]+)- ]]; then
+  # The template may inject capture groups (e.g. {type} alternation), so the
+  # issue number is the first numeric capture in BASH_REMATCH from index 1.
+  matched_n=""
+  for cap in "${BASH_REMATCH[@]:1}"; do
+    if [[ -z "$matched_n" && "$cap" =~ ^[0-9]+$ ]]; then
+      matched_n="$cap"
+    fi
+  done
+  echo "- ABORT: already on issue branch for #${matched_n:-?} — finish or stash before starting a new feature"
   exit 0
 fi
 
