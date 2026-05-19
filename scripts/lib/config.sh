@@ -75,3 +75,40 @@ sillok_config_required() {
   fi
   echo "$value"
 }
+
+# Build a regex that matches any branch produced by the configured template.
+# Substitutes {type} with an alternation of labels.types values, and {user}
+# with .+ (any non-empty run). Escapes regex metacharacters in literal parts.
+sillok_branch_prefix_regex() {
+  local template
+  template=$(sillok_config branchPrefix)
+  [[ -z "$template" ]] && { echo ""; return 1; }
+
+  # Escape regex metacharacters EXCEPT { and } (placeholders).
+  local escaped
+  escaped=$(printf '%s' "$template" | sed -e 's/[][\.^$*+?()|]/\\&/g')
+
+  # Build the {type} alternation from labels.types.
+  local types_alt
+  types_alt=$(sillok_config_array labels.types | tr '\n' '|' | sed 's/|$//')
+  if [[ -z "$types_alt" ]]; then
+    types_alt="feature|bug|improvement|infra|epic"
+  fi
+
+  local result="$escaped"
+  result=${result//\{type\}/($types_alt)}
+  result=${result//\{user\}/.+}
+  printf '%s' "$result"
+}
+
+# Resolve a concrete branch prefix for a specific type + user.
+sillok_branch_prefix_resolve() {
+  local type="$1"
+  local user="${2:-}"
+  local template
+  template=$(sillok_config branchPrefix)
+  local result="$template"
+  result=${result//\{type\}/$type}
+  result=${result//\{user\}/$user}
+  printf '%s' "$result"
+}

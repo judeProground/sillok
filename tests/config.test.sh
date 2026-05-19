@@ -56,5 +56,71 @@ JSON
 )
 pass "project config overrides plugin default"
 
+echo "test: sillok_branch_prefix_resolve substitutes {type}"
+val=$(sillok_branch_prefix_resolve feature)
+[[ "$val" == "feature/issue-" ]] || fail "expected 'feature/issue-', got '$val'"
+pass "{type}/issue- + feature → feature/issue-"
+
+echo "test: sillok_branch_prefix_resolve handles {user}"
+TMPDIR_USERCFG=$(mktemp -d)
+(
+  cd "$TMPDIR_USERCFG"
+  git init -q
+  mkdir -p .claude/sillok
+  cat > .claude/sillok/workflow.config.json <<JSON
+{ "version": 1, "repo": "x/y", "baseBranch": "main", "branchPrefix": "{user}/{type}-" }
+JSON
+  val=$(sillok_branch_prefix_resolve feature jude)
+  [[ "$val" == "jude/feature-" ]] || { echo "FAIL: expected 'jude/feature-', got '$val'"; exit 1; }
+)
+rm -rf "$TMPDIR_USERCFG"
+pass "{user}/{type}- + (feature, jude) → jude/feature-"
+
+echo "test: sillok_branch_prefix_resolve handles literal-only template"
+TMPDIR_LITERAL=$(mktemp -d)
+(
+  cd "$TMPDIR_LITERAL"
+  git init -q
+  mkdir -p .claude/sillok
+  cat > .claude/sillok/workflow.config.json <<JSON
+{ "version": 1, "repo": "x/y", "baseBranch": "main", "branchPrefix": "feat/" }
+JSON
+  val=$(sillok_branch_prefix_resolve feature anyone)
+  [[ "$val" == "feat/" ]] || { echo "FAIL: expected 'feat/', got '$val'"; exit 1; }
+)
+rm -rf "$TMPDIR_LITERAL"
+pass "literal 'feat/' ignores placeholders"
+
+echo "test: sillok_branch_prefix_regex matches any sillok type"
+regex=$(sillok_branch_prefix_regex)
+[[ "$regex" == *"(feature|bug|improvement|infra|epic)"* ]] \
+  || fail "expected (feature|bug|...) alternation, got '$regex'"
+[[ "$regex" == *"/issue-" ]] || fail "expected to end with /issue-, got '$regex'"
+pass "default regex contains type alternation + /issue-"
+
+echo "test: feature branch name matches generated regex"
+regex=$(sillok_branch_prefix_regex)
+test_branch="feature/issue-42-add-haptics"
+if [[ "$test_branch" =~ ^${regex}([0-9]+)-(.+)$ ]]; then
+  # BASH_REMATCH[1] = "feature" (from {type} alternation)
+  # BASH_REMATCH[2] = "42"
+  # BASH_REMATCH[3] = "add-haptics"
+  [[ "${BASH_REMATCH[2]}" == "42" ]] || fail "expected #42, got '${BASH_REMATCH[2]}'"
+  [[ "${BASH_REMATCH[3]}" == "add-haptics" ]] || fail "expected slug 'add-haptics', got '${BASH_REMATCH[3]}'"
+  pass "$test_branch parsed via regex"
+else
+  fail "branch '$test_branch' did not match regex '$regex'"
+fi
+
+echo "test: epic branch also matches"
+regex=$(sillok_branch_prefix_regex)
+test_branch="epic/issue-42-notification-system"
+if [[ "$test_branch" =~ ^${regex}([0-9]+)-(.+)$ ]]; then
+  [[ "${BASH_REMATCH[2]}" == "42" ]] || fail "expected #42, got '${BASH_REMATCH[2]}'"
+  pass "$test_branch parsed via regex (epic case)"
+else
+  fail "branch '$test_branch' did not match regex '$regex'"
+fi
+
 echo
 echo "All config.sh tests passed."
