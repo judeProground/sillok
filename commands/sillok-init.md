@@ -52,10 +52,19 @@ If `REPO` is empty, set a warning flag (printed at end). The user will need to f
 
 ## Step 3: Detect package manager and verify commands
 
+`detect-stack.sh` emits one `key=value` line per field. The values often contain whitespace (e.g. `install=yarn install`, `typecheck=npx tsc --noEmit`), so `eval` is unsafe — the shell would parse `install=yarn install` as a prefix-assignment followed by an `install` command. Use an explicit field reader instead:
+
 ```bash
 PROJECT_ROOT=$(git rev-parse --show-toplevel)
-eval "$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/detect-stack.sh" "$PROJECT_ROOT")"
-# Sets: install, lint, typecheck, format
+install=""; lint=""; typecheck=""; format=""
+while IFS='=' read -r key val; do
+  case "$key" in
+    install)   install="$val" ;;
+    lint)      lint="$val" ;;
+    typecheck) typecheck="$val" ;;
+    format)    format="$val" ;;
+  esac
+done < <(bash "${CLAUDE_PLUGIN_ROOT}/scripts/detect-stack.sh" "$PROJECT_ROOT")
 ```
 
 If `install` is empty, set a warning flag noting "unknown stack — fill verify.* manually".
@@ -236,10 +245,10 @@ Scan the project for vertical-slice candidates and auto-select a conservative su
    - **Rank ≥ 2.** A candidate must appear in at least 2 layout families. Names that appear only once are excluded as low-confidence noise.
    - **Top 15.** Cap the resulting list so a sprawling project doesn't generate 50+ noisy labels.
 
+   The filter lives in `scripts/pick-areas.sh` (not inline awk) because agent-readers of this markdown spec strip bare `$N` field references when they appear in code blocks, corrupting an inline `awk` filter.
+
    ```bash
-   selected=$(printf '%s\n' "$CANDIDATES" \
-     | awk -F'\t' '$2 >= 2 { print $1 }' \
-     | head -n 15)
+   selected=$(printf '%s\n' "$CANDIDATES" | bash "${CLAUDE_PLUGIN_ROOT}/scripts/pick-areas.sh")
    ```
 
 5. **Persist to config.**
