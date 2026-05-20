@@ -6,6 +6,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-20
+
+### Added
+
+- `/sillok-*` shortcut command shims. `/sillok-init` now writes pointer-only shim files to the project's `.claude/commands/sillok-{start,design,execute,end,epic}.md`, so users can type `/sillok-start` in place of the always-namespaced `/sillok:sillok-start`. Shims auto-resolve to the latest installed plugin version at runtime, so plugin upgrades require no re-init to refresh shim content. Idempotent: shims carrying the `sillok-shim: true` frontmatter marker are refreshed on re-init; any foreign file at the same path is preserved untouched. (#1, #3)
+- Vertical-slice label detection. `/sillok-init` scans the project for domain folders across five layout families (FSD `src/{entities,features,widgets,pages,slices,modules}/<name>/`, `app/<name>/`, `modules/<name>/`, `packages/<name>/`, `apps/<name>/`), filters generic infrastructure names (`utils`, `components`, `hooks`, …), ranks candidates by how many families they appear in, and offers a multi-select prompt for opting into `area:<name>` GitHub labels. Selections persist to a new `labels.areas` field in `workflow.config.json`. (#2, #4)
+- `scripts/detect-slices.sh` — bash 3.2-compatible scanner with 11 unit tests.
+- `scripts/write-shim-commands.sh` — shim writer with 7 unit tests.
+- `templates/command-shim.md.tmpl` — pointer-style shim template.
+- `bootstrap-labels.sh --config <path>` — reads `labels.areas` and creates `area:<name>` labels with color `c9d4dd`.
+- `schema/v1.json` — adds optional `labels.areas` array.
+
+### Migration from 1.1.1
+
+Re-run `/sillok-init` in any existing sillok project to pick up both features. The init is idempotent: it does not overwrite `workflow.config.json` or any scaffolded rule, only adds the new shim files under `.claude/commands/` and triggers the new slice-detection prompt.
+
 ## [1.1.1] - 2026-05-19
 
 ### Fixed
