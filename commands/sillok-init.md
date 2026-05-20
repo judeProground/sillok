@@ -6,6 +6,8 @@ You are running `/sillok-init` to bootstrap the current project for sillok.
 
 **This command takes no arguments and asks no questions.** If detection of any field fails, the field is left empty in the generated config and a warning is printed; the user edits `.claude/sillok/workflow.config.json` afterward.
 
+**Auto-mode contract:** every step below MUST execute. Do not skip Step 7b (shim install) or Step 8b (area auto-pick) even when invoked by an auto-mode agent — both are deterministic, write only to plugin-managed paths, and have idempotent safeguards documented in their own headers.
+
 ## Step 1: Verify prerequisites
 
 Run silently:
@@ -27,6 +29,16 @@ if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
   echo "[sillok-init] not inside a git repository — cd into the project root first"
   exit 1
 fi
+
+# Initialize sub-step status variables consumed by the Step 11 summary.
+# Each step below sets its own; defaulting to "fail" makes any skipped step
+# visible in the final status icon rather than silently masquerading as ok.
+CONFIG_STATUS=fail
+RULES_STATUS=fail
+SHIM_STATUS=fail
+CLAUDE_MD_STATUS=fail
+AREA_STATUS=fail
+LABELS_STATUS=fail
 ```
 
 ## Step 2: Detect repo and base branch
@@ -81,7 +93,9 @@ CFG="$PROJECT_ROOT/.claude/sillok/workflow.config.json"
 # If config already exists, do NOT overwrite — print notice and skip this step.
 if [[ -f "$CFG" ]]; then
   echo "[sillok-init] $CFG already exists — leaving as-is. Edit manually to update."
+  CONFIG_STATUS=preserved
 else
+  CONFIG_STATUS=ok
   # Build copyFiles JSON array
   copyfiles_json=$(printf '%s\n' "${COPY_FILES[@]}" | jq -R . | jq -s .)
 
@@ -120,78 +134,131 @@ fi
 ## Step 7: Scaffold rules
 
 ```bash
-mkdir -p "$PROJECT_ROOT/.claude/sillok/rules"
-SKIPPED_RULES=()
-for src in "${CLAUDE_PLUGIN_ROOT}/templates/rules/"*.md; do
-  name=$(basename "$src")
-  dest="$PROJECT_ROOT/.claude/sillok/rules/$name"
-  if [[ -f "$dest" ]]; then
-    SKIPPED_RULES+=("$name")
-  else
-    cp "$src" "$dest"
-  fi
-done
+if mkdir -p "$PROJECT_ROOT/.claude/sillok/rules"; then
+  SKIPPED_RULES=()
+  RULES_STATUS=ok
+  for src in "${CLAUDE_PLUGIN_ROOT}/templates/rules/"*.md; do
+    name=$(basename "$src")
+    dest="$PROJECT_ROOT/.claude/sillok/rules/$name"
+    if [[ -f "$dest" ]]; then
+      SKIPPED_RULES+=("$name")
+    else
+      if ! cp "$src" "$dest"; then
+        RULES_STATUS=fail
+      fi
+    fi
+  done
+else
+  RULES_STATUS=fail
+fi
 ```
 
-## Step 7b: Write command shortcut shims
+## Step 7b: Write command shortcut shims (REQUIRED)
 
-Plugin slash commands are namespaced by Claude Code (`/sillok:sillok-start` and friends). To also let the user type the shorter `/sillok-start`, install standalone-style shim files into the project's `.claude/commands/`. The shims are pointer-only — they resolve the latest installed plugin version at invocation time and delegate to the canonical command.
+This step is REQUIRED. Do not skip even when operating in auto-mode. The script only writes to `.claude/commands/sillok-*.md` files (5 specific filenames), respects existing foreign files via the `sillok-shim: true` marker, and is fully idempotent. Skipping it leaves the plugin's `/sillok-*` shortcuts inactive — a silent regression for the user.
+
+Plugin slash commands are namespaced by Claude Code (`/sillok:sillok-start` etc.). The shims under `.claude/commands/` are the only supported mechanism for the shorter `/sillok-start` form.
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/write-shim-commands.sh" "$PROJECT_ROOT"
+if bash "${CLAUDE_PLUGIN_ROOT}/scripts/write-shim-commands.sh" "$PROJECT_ROOT"; then
+  SHIM_STATUS=ok
+else
+  SHIM_STATUS=fail
+fi
 ```
 
-The script is idempotent: it overwrites shims it manages (those carrying `sillok-shim: true` in frontmatter) and leaves any foreign file at `.claude/commands/sillok-*.md` untouched. The user remains free to author their own commands at any other name without sillok interference.
+`SHIM_STATUS` feeds the final-summary status calculation in Step 11. If `fail`, the summary becomes ⚠️ with a follow-up command the user can copy.
 
 ## Step 8: Append `CLAUDE.md` imports
 
 ```bash
 CLAUDE_MD="$PROJECT_ROOT/CLAUDE.md"
 SNIPPET="${CLAUDE_PLUGIN_ROOT}/templates/claude-md-snippet.md"
+CLAUDE_MD_STATUS=ok
 if [[ ! -f "$CLAUDE_MD" ]]; then
-  echo "# CLAUDE.md" > "$CLAUDE_MD"
-  echo >> "$CLAUDE_MD"
+  if ! { echo "# CLAUDE.md" > "$CLAUDE_MD" && echo >> "$CLAUDE_MD"; }; then
+    CLAUDE_MD_STATUS=fail
+  fi
 fi
 # Only append the import section if the marker line is not already there.
-if ! grep -q "## Sillok workflow rules" "$CLAUDE_MD"; then
-  echo >> "$CLAUDE_MD"
-  cat "$SNIPPET" >> "$CLAUDE_MD"
+if [[ "$CLAUDE_MD_STATUS" == "ok" ]] && ! grep -q "## Sillok workflow rules" "$CLAUDE_MD"; then
+  if ! { echo >> "$CLAUDE_MD" && cat "$SNIPPET" >> "$CLAUDE_MD"; }; then
+    CLAUDE_MD_STATUS=fail
+  fi
 fi
 ```
 
-## Step 8b: Detect and offer area labels
+## Step 8b: Auto-pick area labels
 
-Scan the project for vertical-slice candidates so the user can opt into a richer label taxonomy beyond the universal 14.
+Scan the project for vertical-slice candidates and auto-select a conservative subset for `area:<name>` GitHub labels. This step is **non-interactive** (no `AskUserQuestion` call) so the init preamble's "asks no questions" guarantee holds. The user can adjust the selection afterward by editing `labels.areas` in `workflow.config.json` or by asking Claude to do it in natural language.
 
-1. Run the detector:
+1. **Skip if user already curated areas.** Re-running init on a project where `labels.areas` is already non-empty should NOT clobber the user's curation:
+
+   ```bash
+   EXISTING_AREAS=$(jq -r '(.labels.areas // [])[]' "$CFG" 2>/dev/null | wc -l | tr -d ' ')
+   if [[ "$EXISTING_AREAS" -gt 0 ]]; then
+     AREA_STATUS=skip-preserved
+     # leave $CFG untouched; report in summary
+   else
+     ...continue to step 2...
+   fi
+   ```
+
+2. **Detect candidates.**
 
    ```bash
    CANDIDATES=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/detect-slices.sh" "$PROJECT_ROOT" 2>/dev/null || true)
    ```
 
-2. If `$CANDIDATES` is empty (no recognized slice layout), skip silently.
-3. Otherwise, take the top 30 lines and present them via `AskUserQuestion` with `multiSelect: true`. Format each option as `<name> (in <rank> dirs)`; the rank suffix helps the user judge signal vs. noise (a name appearing in 4 layout families is almost certainly a domain; one in 1 is probably accidental).
-
-   Question text: "Detected N candidate vertical slices in your project. Select the ones to create as `area:<name>` GitHub labels (any subset; cancel for none):"
-
-4. For each selected name, write the array to `labels.areas` in `$CFG`:
+3. **No candidates → silent ok.**
 
    ```bash
-   # Assume $selected holds a space-separated list of accepted names.
-   selected_json=$(printf '%s\n' $selected | jq -R . | jq -s .)
-   tmp=$(mktemp)
-   jq --argjson areas "$selected_json" '.labels.areas = $areas' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+   if [[ -z "$CANDIDATES" ]]; then
+     AREA_STATUS=none-detected
+     # leave labels.areas as []
+   fi
    ```
 
-5. Print a one-line confirmation: `labels.areas = [...]`.
+4. **Auto-pick with two filters:**
 
-If the user accepts none or cancels, leave `labels.areas: []` (the default written in Step 6).
+   - **Rank ≥ 2.** A candidate must appear in at least 2 layout families. Names that appear only once are excluded as low-confidence noise.
+   - **Top 15.** Cap the resulting list so a sprawling project doesn't generate 50+ noisy labels.
+
+   ```bash
+   selected=$(printf '%s\n' "$CANDIDATES" \
+     | awk -F'\t' '$2 >= 2 { print $1 }' \
+     | head -n 15)
+   ```
+
+5. **Persist to config.**
+
+   ```bash
+   if [[ -n "$selected" ]]; then
+     selected_json=$(printf '%s\n' $selected | jq -R . | jq -s .)
+     tmp=$(mktemp)
+     jq --argjson areas "$selected_json" '.labels.areas = $areas' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+     AREA_STATUS=auto-picked
+     AREA_COUNT=$(printf '%s\n' $selected | wc -l | tr -d ' ')
+   else
+     AREA_STATUS=none-confident   # candidates existed but all rank 1
+   fi
+   ```
+
+6. **Surface the result in Step 11** with the names listed and a follow-up guide on how to adjust.
+
+`AREA_STATUS` is one of: `auto-picked`, `none-detected`, `none-confident`, `skip-preserved`. Each maps to a distinct summary line (see Step 11).
 
 ## Step 9: Bootstrap labels
 
 ```bash
 if [[ -n "$REPO" ]]; then
-  bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-labels.sh" "$REPO" --config "$CFG"
+  if bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-labels.sh" "$REPO" --config "$CFG"; then
+    LABELS_STATUS=ok
+  else
+    LABELS_STATUS=fail
+  fi
+else
+  LABELS_STATUS=skipped-no-repo
 fi
 ```
 
@@ -209,10 +276,31 @@ mkdir -p "$PROJECT_ROOT/$SPEC_DIR" "$PROJECT_ROOT/$PLAN_DIR"
 
 ## Step 11: Print summary
 
-Print a single-screen summary:
+Compute the headline status icon from sub-step outcomes:
+
+```bash
+# Inputs (set by earlier steps):
+#   CONFIG_STATUS   = ok | preserved | fail        (Step 6)
+#   RULES_STATUS    = ok | fail                    (Step 7)
+#   SHIM_STATUS     = ok | fail                    (Step 7b)
+#   CLAUDE_MD_STATUS= ok | fail                    (Step 8)
+#   AREA_STATUS     = auto-picked | none-detected | none-confident | skip-preserved | fail   (Step 8b)
+#   LABELS_STATUS   = ok | skipped-no-repo | fail  (Step 9)
+
+# Critical steps — must all succeed for ✅
+if [[ "$CONFIG_STATUS" == "fail" || "$RULES_STATUS" == "fail" || "$CLAUDE_MD_STATUS" == "fail" || "$LABELS_STATUS" == "fail" ]]; then
+  HEADLINE="❌ sillok init FAILED"
+elif [[ "$SHIM_STATUS" == "fail" || "$AREA_STATUS" == "fail" ]]; then
+  HEADLINE="⚠️  sillok initialized (with warnings — see below)"
+else
+  HEADLINE="✅ sillok initialized"
+fi
+```
+
+Print:
 
 ```
-✅ sillok initialized
+<HEADLINE>
 
 Repo:          <REPO or "(detect failed, edit manually)">
 Base branch:   <BASE_BRANCH>
@@ -220,15 +308,44 @@ Branch prefix: <BRANCH_PREFIX>
 Stack:         <one of pnpm/yarn/npm/bun/bundler/go/cargo/poetry/pipenv or "unknown">
 
 Created:
-- .claude/sillok/workflow.config.json
-- .claude/sillok/rules/* (N files, M skipped: <skipped list>)
-- .claude/commands/sillok-{start,design,execute,end,epic}.md (shim shortcuts)
-- CLAUDE.md (appended Sillok import block)
+- .claude/sillok/workflow.config.json                  [<CONFIG_STATUS>]
+- .claude/sillok/rules/* (N files, M skipped: <list>)  [<RULES_STATUS>]
+- .claude/commands/sillok-{start,design,execute,end,epic}.md  [<SHIM_STATUS>]
+- CLAUDE.md (appended Sillok import block)             [<CLAUDE_MD_STATUS>]
 - <SPEC_DIR>/ and <PLAN_DIR>/ (ensured)
-- Labels on <REPO> (14 universal + N area labels, or "skipped — set repo first")
+- Labels on <REPO>                                     [<LABELS_STATUS>]
+```
 
-Warnings: <list, if any>
+**Area-label sub-summary** (always printed when relevant):
 
+| `AREA_STATUS` | Output |
+|---|---|
+| `auto-picked` | `📊 Area labels auto-selected (rank ≥ 2, top 15): area:<n1>, area:<n2>, …` followed by the "Not what you want?" guide below. |
+| `none-detected` | `📊 No vertical-slice layout detected — no area labels created.` |
+| `none-confident` | `📊 Slice candidates found but all rank 1 (single-family) — skipped auto-pick.` |
+| `skip-preserved` | `📊 labels.areas already curated (<N> entries) — auto-pick skipped to preserve user edits.` |
+| `fail` | `📊 Area auto-pick FAILED — re-run manually: bash <plugin>/scripts/detect-slices.sh "$PROJECT_ROOT"` |
+
+The "Not what you want?" guide (for `auto-picked` only):
+
+```
+Not what you want?
+  - Edit `labels.areas` in .claude/sillok/workflow.config.json, then re-run:
+      bash ${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-labels.sh <repo> --config <cfg-path>
+  - Or just ask Claude in natural language, e.g.
+      "remove area:foo and add area:bar from sillok config, then re-bootstrap labels"
+```
+
+**Warnings block** (only when `SHIM_STATUS == fail` or `LABELS_STATUS == skipped-no-repo`):
+
+```
+⚠️  Warnings / follow-ups:
+- <issue> — <copy-pasteable fix command>
+```
+
+**Footer:**
+
+```
 Next: /sillok-start to create your first feature.
 ```
 
@@ -240,3 +357,4 @@ Re-running `/sillok-init` must:
 - Skip CLAUDE.md import-block append if the marker is already present
 - Skip label creation for labels that already exist (handled by `bootstrap-labels.sh` with `|| true`)
 - Leave `workflow.config.json` alone if it already exists (report "config already present — edit manually to update")
+- Preserve existing `labels.areas` array: if non-empty in the existing config, Step 8b reports `skip-preserved` and does NOT overwrite (user's curation wins over auto-pick)
