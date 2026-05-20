@@ -6,6 +6,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-05-20
+
+### Fixed
+
+- `detect-stack` validates `lint`/`format`/`typecheck` against `package.json#scripts` for npm-family stacks (npm/yarn/pnpm/bun) instead of assuming conventional names. If the matching script doesn't exist, the field is left empty rather than producing a verify-gate command that fails at runtime. `typecheck` gains a `tsconfig.json` fallback to `npx tsc --noEmit` / `bunx tsc --noEmit`. (#7, #9)
+- `worktree.copyFiles` detection no longer gets swallowed by `node_modules/` entries. Step 5 now pre-filters to candidate basenames via regex, excludes `node_modules`/`vendor`/`target`/`dist`/`build`/`out`/`coverage`/`.next`/`.turbo`/`.svelte-kit`/`.nuxt`/`.cache` prefixes, and uses a generous `head -200` safety bound instead of the old arbitrary `head -50`. Root-level `.env*`, `eas.json`, `google-services.json`, `GoogleService-Info.plist` and monorepo-nested variants are now correctly detected. (#8, #9)
+
 ## [1.2.1] - 2026-05-20
 
 ### Fixed
