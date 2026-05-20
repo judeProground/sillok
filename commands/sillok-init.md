@@ -71,18 +71,30 @@ BRANCH_PREFIX="{type}/issue-"
 
 ## Step 5: Detect worktree copy files
 
-Find gitignored files in the project root that match common config patterns:
+Find gitignored files that match common per-worktree config patterns. The pipeline pre-filters with `grep` so dependency-cache entries like `node_modules/**/*` don't crowd out the actual config files; the case-filter inside the loop then acts as a final defence-in-depth check.
 
 ```bash
 COPY_FILES=()
 while IFS= read -r f; do
   case "$f" in
     *.env|*.env.local|*.env.production|.env|.env.*) COPY_FILES+=("$f") ;;
-    eas.json) COPY_FILES+=("$f") ;;
-    google-services.json|GoogleService-Info.plist) COPY_FILES+=("$f") ;;
+    *eas.json|eas.json) COPY_FILES+=("$f") ;;
+    *google-services.json|google-services.json) COPY_FILES+=("$f") ;;
+    *GoogleService-Info.plist|GoogleService-Info.plist) COPY_FILES+=("$f") ;;
   esac
-done < <(cd "$PROJECT_ROOT" && git ls-files --others --ignored --exclude-standard 2>/dev/null | head -50)
+done < <(cd "$PROJECT_ROOT" && git ls-files --others --ignored --exclude-standard 2>/dev/null \
+  | grep -E '(^|/)(\.env(\..*)?|eas\.json|google-services\.json|GoogleService-Info\.plist)$' \
+  | grep -vE '^(node_modules|vendor|target|dist|build|out|coverage|\.next|\.turbo|\.svelte-kit|\.nuxt|\.cache)/' \
+  | head -200)
 ```
+
+Two-stage filter rationale:
+
+1. **First `grep`** narrows the gitignored-file list to candidates that *might* be per-worktree config. Without this, `git ls-files --others --ignored` is dominated by `node_modules/` (typically tens of thousands of entries), drowning out the root-level config we care about.
+2. **Second `grep -v`** excludes matches that happen to live inside dependency caches or build outputs (e.g. a third-party package shipping its own `.env.example` under `node_modules/foo/.env.example`). Those files are owned by the dependency, not the project, and copying them into a new worktree is wrong (worktrees reinstall dependencies anyway).
+3. **`head -200`** is a safety bound for absurdly large match sets — well above any realistic per-project config count.
+
+The case-filter inside the loop remains as a final defence-in-depth check.
 
 ## Step 6: Write `workflow.config.json`
 
