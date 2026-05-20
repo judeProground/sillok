@@ -110,6 +110,7 @@ else
         "types": ["feature","bug","improvement","infra","epic"],
         "stages": ["backlog","todo","designed","in-progress","in-review"],
         "priorities": ["p1","p2","p3","p4"],
+        "areas": [],
         "defaults": { "type": "feature", "stage": "todo", "priority": "p3" }
       }
     }' > "$CFG"
@@ -158,15 +159,45 @@ if ! grep -q "## Sillok workflow rules" "$CLAUDE_MD"; then
 fi
 ```
 
+## Step 8b: Detect and offer area labels
+
+Scan the project for vertical-slice candidates so the user can opt into a richer label taxonomy beyond the universal 14.
+
+1. Run the detector:
+
+   ```bash
+   CANDIDATES=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/detect-slices.sh" "$PROJECT_ROOT" 2>/dev/null || true)
+   ```
+
+2. If `$CANDIDATES` is empty (no recognized slice layout), skip silently.
+3. Otherwise, take the top 30 lines and present them via `AskUserQuestion` with `multiSelect: true`. Format each option as `<name> (in <rank> dirs)`; the rank suffix helps the user judge signal vs. noise (a name appearing in 4 layout families is almost certainly a domain; one in 1 is probably accidental).
+
+   Question text: "Detected N candidate vertical slices in your project. Select the ones to create as `area:<name>` GitHub labels (any subset; cancel for none):"
+
+4. For each selected name, write the array to `labels.areas` in `$CFG`:
+
+   ```bash
+   # Assume $selected holds a space-separated list of accepted names.
+   selected_json=$(printf '%s\n' $selected | jq -R . | jq -s .)
+   tmp=$(mktemp)
+   jq --argjson areas "$selected_json" '.labels.areas = $areas' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+   ```
+
+5. Print a one-line confirmation: `labels.areas = [...]`.
+
+If the user accepts none or cancels, leave `labels.areas: []` (the default written in Step 6).
+
 ## Step 9: Bootstrap labels
 
 ```bash
 if [[ -n "$REPO" ]]; then
-  bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-labels.sh" "$REPO"
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-labels.sh" "$REPO" --config "$CFG"
 fi
 ```
 
-If `$REPO` is empty (detection failed), skip with a warning that the user must run `bash ${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-labels.sh <owner>/<repo>` manually.
+The `--config` flag picks up `labels.areas` from the config (empty by default) and creates corresponding `area:<name>` labels with color `c9d4dd` (muted blue-gray).
+
+If `$REPO` is empty (detection failed), skip with a warning that the user must run `bash ${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-labels.sh <owner>/<repo> --config <path-to-config>` manually.
 
 ## Step 10: Ensure spec/plan dirs
 
@@ -194,7 +225,7 @@ Created:
 - .claude/commands/sillok-{start,design,execute,end,epic}.md (shim shortcuts)
 - CLAUDE.md (appended Sillok import block)
 - <SPEC_DIR>/ and <PLAN_DIR>/ (ensured)
-- Labels on <REPO> (or "skipped — set repo first")
+- Labels on <REPO> (14 universal + N area labels, or "skipped — set repo first")
 
 Warnings: <list, if any>
 

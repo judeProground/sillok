@@ -39,6 +39,7 @@
     "types": ["feature", "bug", "improvement", "infra", "epic"],
     "stages": ["backlog", "todo", "designed", "in-progress", "in-review"],
     "priorities": ["p1", "p2", "p3", "p4"],
+    "areas": [],
     "defaults": {
       "type": "feature",
       "stage": "todo",

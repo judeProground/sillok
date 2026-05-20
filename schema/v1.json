@@ -70,6 +70,11 @@
         "types": { "type": "array", "items": { "type": "string" } },
         "stages": { "type": "array", "items": { "type": "string" } },
         "priorities": { "type": "array", "items": { "type": "string" } },
+        "areas": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "description": "Optional vertical-slice labels. Each entry produces an 'area:<name>' GitHub label. Detected from project structure during /sillok-init."
+        },
         "defaults": {
           "type": "object",
           "properties": {
