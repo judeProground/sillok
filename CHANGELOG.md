@@ -6,6 +6,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-05-20
+
+### Fixed
+
+- `/sillok-init` Step 3 no longer uses `eval` to import `detect-stack.sh` output. Values containing whitespace (e.g. `install=yarn install`) made the shell parse the line as a prefix-assignment followed by an `install` command — invoking BSD `/usr/bin/install` on macOS and running subsequent lines as standalone commands. Replaced with a `while IFS='=' read -r key val` loop. (#10, #12)
+- `/sillok-init` Step 8b no longer inlines `awk -F'\t' '$2 >= 2 { print $1 }'`. Agent-readers of the markdown spec strip bare `$N` field references when they appear in code blocks, turning the filter into garbage and producing `area:4` GitHub labels in place of real names. The filter is now `scripts/pick-areas.sh`; the spec just pipes through it, so script internals are never read by the agent. (#11, #12)
+
 ## [1.2.2] - 2026-05-20
 
 ### Fixed
