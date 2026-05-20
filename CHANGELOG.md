@@ -6,6 +6,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-05-20
+
+### Fixed
+
+- `/sillok-init` no longer silently skips v1.2.0's new features when run via an auto-mode agent. (#5, #6)
+  - Step 7b (shim install) is now marked REQUIRED with an explicit auto-mode contract in the init preamble; exit code is captured into `SHIM_STATUS`.
+  - Step 8b no longer calls `AskUserQuestion` (which contradicted the init's "asks no questions" guarantee). Area labels are auto-picked non-interactively using `rank >= 2 AND top 15`. An existing non-empty `labels.areas` is preserved on re-init.
+  - The final summary's headline (✅/⚠️/❌) is now computed from six sub-step status variables instead of always printing ✅. Each `Created:` line carries a `[status]` marker; a distinct area sub-summary is rendered per `AREA_STATUS` (auto-picked / none-detected / none-confident / skip-preserved / fail).
+
+### Migration from 1.2.0
+
+Re-run `/sillok-init` in any project initialized under v1.2.0. The new logic is idempotent: it will not overwrite `workflow.config.json`, will refresh shim files only if they carry the `sillok-shim: true` marker, and will preserve any non-empty `labels.areas` you already curated.
+
 ## [1.2.0] - 2026-05-20
 
 ### Added
