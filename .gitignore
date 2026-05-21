@@ -11,5 +11,4 @@ node_modules/
 # sillok self-hosting artifacts (do not ship to plugin users)
 .claude/sillok/
 .claude/commands/sillok-*.md
-docs/superpowers/
 .worktrees/
