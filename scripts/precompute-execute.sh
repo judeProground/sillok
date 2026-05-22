@@ -114,6 +114,22 @@ if [[ -n "$prefix_regex" && "$branch" =~ ^${prefix_regex}([0-9]+)-(.+)$ ]]; then
     echo "- None — will create at \`$PLAN_DIR/$(date +%Y-%m-%d)-$slug.md\` (step 4)"
   fi
 
+  # Project status
+  echo
+  echo "### Project status"
+  # shellcheck source=lib/project.sh
+  source "${SCRIPT_DIR}/lib/project.sh" 2>/dev/null || true
+  if command -v sillok_project_item_for_issue >/dev/null 2>&1; then
+    item_id=$(sillok_project_item_for_issue "https://github.com/$REPO/issues/$n")
+    if [[ -n "$item_id" ]]; then
+      status=$(sillok_project_status_get "$item_id" || echo "")
+      echo "- Item ID: $item_id"
+      echo "- Status: ${status:-unknown}"
+    else
+      echo "- (not in project)"
+    fi
+  fi
+
 elif [[ "$branch" =~ ^feature/(.+)$ ]]; then
   umbrella="${BASH_REMATCH[1]}"
   echo
