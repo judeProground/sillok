@@ -48,17 +48,17 @@ When adding a config key: update `schema/v1.json` AND `templates/workflow.config
 
 ### Branch-prefix templating
 
-`branchPrefix` is a template, not a literal. `sillok_branch_prefix_resolve <type> [user]` substitutes `{type}` and `{user}` placeholders to produce concrete prefixes (`feature/issue-`, `bug/issue-`, `epic/issue-`, etc.). `sillok_branch_prefix_regex` builds the inverse — a regex with a `(feature|bug|...)` alternation, used by precompute scripts to parse branch names back into issue numbers.
+`branchPrefix` is a template, not a literal. `sillok_branch_prefix_resolve <type> [user]` substitutes `{type}` and `{user}` placeholders to produce concrete prefixes (`feature/issue-`, `bug/issue-`, `story/issue-`, etc.). `sillok_branch_prefix_regex` builds the inverse — a regex with a `(feature|bug|...)` alternation, used by precompute scripts to parse branch names back into issue numbers.
 
 When walking `BASH_REMATCH` after that regex: the `{type}` alternation injects a capture group BEFORE the issue number, so loop over `BASH_REMATCH[@]:1` and grab the first numeric capture as the issue number — don't hardcode indices. See the loop in `scripts/precompute-end.sh:46-65`.
 
-### Epic = integration branch, not just a label
+### Story = integration branch
 
-An epic in sillok is a parent tracking issue PLUS a real `epic/issue-<N>-<slug>` branch PLUS a worktree. Sub-features cut from and PR back to the integration branch; the epic PR then merges to base with `--merge` (preserving sub-feature commits), not `--squash`. This is enforced across three commands:
+A story in sillok is a parent tracking issue PLUS a real `story/issue-<N>-<slug>` branch PLUS a worktree. Sub-features cut from and PR back to the integration branch; the story PR then merges to base with `--merge` (preserving sub-feature commits), not `--squash`. This is enforced across three commands:
 
-- `/sillok-epic` creates the integration branch + pushes it to origin.
+- `/sillok-story` creates the integration branch + pushes it to origin.
 - `/sillok-start --parent N` looks up the parent's `## Integration branch` body section and passes that branch as the 3rd arg to `setup-feature-worktree.sh`.
-- `/sillok-end` detects epic-finalize mode when the current branch matches `epic/issue-<N>-<slug>` and switches PR base + body template accordingly.
+- `/sillok-end` detects story-finalize mode when the current branch matches `story/issue-<N>-<slug>` and switches PR base + body template accordingly.
 
 If touching any of these, keep the three in sync — drift breaks the parent-child branch graph silently.
 

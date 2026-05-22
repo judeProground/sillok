@@ -1,5 +1,5 @@
 ---
-description: Write the plan from the spec, dispatch subagent-driven execution, and run a final whole-branch review at the end. Per-task reviews are delegated to superpowers; only the end-of-plan review is mandatory. Flips stage label designed → in-progress when plan saved. Auto-answers writing-plans handoff with subagent-driven (no re-prompt).
+description: Write the plan from the spec, dispatch subagent-driven execution, and run a final whole-branch review at the end. Per-task reviews are delegated to superpowers; only the end-of-plan review is mandatory. Sets project status to In Progress when plan saved. Auto-answers writing-plans handoff with subagent-driven (no re-prompt).
 ---
 
 You are running the `/sillok-execute` slash command for the sillok.

@@ -419,7 +419,7 @@ Stack:         <one of pnpm/yarn/npm/bun/bundler/go/cargo/poetry/pipenv or "unkn
 Created:
 - .claude/sillok/workflow.config.json                  [<CONFIG_STATUS>]
 - .claude/sillok/rules/* (N files, M skipped: <list>)  [<RULES_STATUS>]
-- .claude/commands/sillok-{start,design,execute,end,epic}.md  [<SHIM_STATUS>]
+- .claude/commands/sillok-{start,design,execute,end,story}.md  [<SHIM_STATUS>]
 - CLAUDE.md (appended Sillok import block)             [<CLAUDE_MD_STATUS>]
 - <SPEC_DIR>/ and <PLAN_DIR>/ (ensured)
 - Labels on <REPO>                                     [<LABELS_STATUS>]

@@ -28,13 +28,13 @@ Read the markdown block. Show it back to the user as the current state summary.
 
 ## Step 2: Pre-condition
 
-Stage was already extracted by precompute (step 1). Apply:
+Project status was extracted by precompute (step 1, `### Project status` section). Apply:
 
-- `todo` → proceed.
-- `in-progress` (continuing prior partial design work) → unusual but allowed; confirm intent with user.
-- `designed` / `in-review` → ABORT with "Spec already exists. Run `/sillok-execute` instead, or change the stage label manually if you actually want to redesign."
+- `Todo` → proceed.
+- `In Design` (continuing prior partial design work) → unusual but allowed; confirm intent with user.
+- `In Progress` / `In QA` / `Done` → ABORT with "Issue is past design stage. Run `/sillok-execute` if In Progress, or fix the project status manually."
 
-If precompute reported a stage warning, surface it to the user before proceeding.
+Spec existence was verified in step 1 — abort already handled there.
 
 ## Step 3: Spec path + pre-existing check
 
