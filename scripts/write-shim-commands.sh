@@ -18,7 +18,7 @@
 #
 # Behaviour:
 #   - Creates `<project-root>/.claude/commands/` if missing.
-#   - For each shim target (start, design, execute, end, epic):
+#   - For each shim target (start, design, execute, end, story):
 #       * If file is absent → write fresh shim.
 #       * If file has `sillok-shim: true` in frontmatter → overwrite (idempotent refresh).
 #       * If file exists without marker → skip with a warning unless prompted.
@@ -51,7 +51,7 @@ fi
 # Shim targets — kept in sync with the user-facing canonical commands. We do
 # NOT shim `sillok-init` itself (init runs once and is already typed in canonical
 # form by definition).
-SHIM_TARGETS=(start design execute end epic)
+SHIM_TARGETS=(start design execute end story)
 
 COMMANDS_DIR="$PROJECT_ROOT/.claude/commands"
 mkdir -p "$COMMANDS_DIR"
