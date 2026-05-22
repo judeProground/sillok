@@ -11,37 +11,57 @@ source "$REPO_ROOT/scripts/lib/config.sh"
 fail() { echo "FAIL: $1" >&2; exit 1; }
 pass() { echo "  ok: $1"; }
 
-echo "test: sillok_config reads scalar from default template"
-val=$(sillok_config baseBranch)
-[[ "$val" == "main" ]] || fail "expected main, got '$val'"
-pass "baseBranch = main"
+# Run "default template" tests from a sandbox that has NO project-level
+# .claude/sillok/workflow.config.json. Otherwise, this repo's own self-hosting
+# config (gitignored, but visible to git rev-parse) would override the template
+# and make these assertions read project values instead of template defaults.
+TMPDIR_SANDBOX=$(mktemp -d)
+trap 'rm -rf "$TMPDIR_SANDBOX"' EXIT
+(
+  cd "$TMPDIR_SANDBOX"
+  git init -q
 
-echo "test: sillok_config returns empty for unset scalar"
-val=$(sillok_config repo)
-[[ "$val" == "" ]] || fail "expected empty, got '$val'"
-pass "unset repo returns empty"
+  echo "test: sillok_config reads scalar from default template"
+  val=$(sillok_config baseBranch)
+  [[ "$val" == "main" ]] || { echo "FAIL: expected main, got '$val'"; exit 1; }
+  echo "  ok: baseBranch = main"
 
-echo "test: sillok_config returns nested key"
-val=$(sillok_config milestone.naming)
-[[ "$val" == "YYYY-MM-Wn" ]] || fail "expected YYYY-MM-Wn, got '$val'"
-pass "milestone.naming = YYYY-MM-Wn"
+  echo "test: sillok_config returns empty for unset scalar"
+  val=$(sillok_config repo)
+  [[ "$val" == "" ]] || { echo "FAIL: expected empty, got '$val'"; exit 1; }
+  echo "  ok: unset repo returns empty"
 
-echo "test: sillok_config_array reads array"
-types=()
-while IFS= read -r line; do types+=("$line"); done < <(sillok_config_array labels.types)
-[[ "${#types[@]}" == "5" ]] || fail "expected 5 types, got ${#types[@]}"
-[[ "${types[0]}" == "feature" ]] || fail "expected feature, got '${types[0]}'"
-pass "labels.types has 5 entries starting with feature"
+  echo "test: sillok_config returns nested key"
+  val=$(sillok_config milestone.naming)
+  [[ "$val" == "YYYY-MM-Wn" ]] || { echo "FAIL: expected YYYY-MM-Wn, got '$val'"; exit 1; }
+  echo "  ok: milestone.naming = YYYY-MM-Wn"
 
-echo "test: sillok_config_required exits non-zero for empty"
-if (sillok_config_required repo 2>/dev/null); then
-  fail "expected non-zero exit for empty required key"
-fi
-pass "sillok_config_required exits non-zero for empty 'repo'"
+  echo "test: sillok_config_array reads array (labels.natures from v2 template)"
+  natures=()
+  while IFS= read -r line; do natures+=("$line"); done < <(sillok_config_array labels.natures)
+  [[ "${#natures[@]}" == "6" ]] || { echo "FAIL: expected 6 natures, got ${#natures[@]}"; exit 1; }
+  [[ "${natures[0]}" == "improvement" ]] || { echo "FAIL: expected first nature 'improvement', got '${natures[0]}'"; exit 1; }
+  echo "  ok: labels.natures has 6 entries starting with improvement"
+
+  echo "test: sillok_config returns nested project.statusField"
+  val=$(sillok_config project.statusField)
+  [[ "$val" == "Status" ]] || { echo "FAIL: expected 'Status', got '$val'"; exit 1; }
+  echo "  ok: project.statusField = Status"
+
+  echo "test: types.defaults.composite reads as 'Story'"
+  val=$(sillok_config types.defaults.composite)
+  [[ "$val" == "Story" ]] || { echo "FAIL: expected 'Story', got '$val'"; exit 1; }
+  echo "  ok: types.defaults.composite = Story"
+
+  echo "test: sillok_config_required exits non-zero for empty"
+  if (sillok_config_required repo 2>/dev/null); then
+    echo "FAIL: expected non-zero exit for empty required key"; exit 1
+  fi
+  echo "  ok: sillok_config_required exits non-zero for empty 'repo'"
+) || exit 1
 
 echo "test: project override beats plugin default"
 TMPDIR_PROJECT=$(mktemp -d)
-trap 'rm -rf "$TMPDIR_PROJECT"' EXIT
 (
   cd "$TMPDIR_PROJECT"
   git init -q
@@ -54,11 +74,18 @@ JSON
   val=$(sillok_config repo)
   [[ "$val" == "judeProground/sillok" ]] || { echo "FAIL: expected judeProground/sillok, got '$val'"; exit 1; }
 )
+rm -rf "$TMPDIR_PROJECT"
 pass "project config overrides plugin default"
 
 echo "test: sillok_branch_prefix_resolve substitutes {type}"
-val=$(sillok_branch_prefix_resolve feature)
-[[ "$val" == "feature/issue-" ]] || fail "expected 'feature/issue-', got '$val'"
+TMPDIR_RESOLVE=$(mktemp -d)
+(
+  cd "$TMPDIR_RESOLVE"
+  git init -q
+  val=$(sillok_branch_prefix_resolve feature)
+  [[ "$val" == "feature/issue-" ]] || { echo "FAIL: expected 'feature/issue-', got '$val'"; exit 1; }
+)
+rm -rf "$TMPDIR_RESOLVE"
 pass "{type}/issue- + feature → feature/issue-"
 
 echo "test: sillok_branch_prefix_resolve handles {user}"
@@ -92,35 +119,55 @@ rm -rf "$TMPDIR_LITERAL"
 pass "literal 'feat/' ignores placeholders"
 
 echo "test: sillok_branch_prefix_regex matches any sillok type"
-regex=$(sillok_branch_prefix_regex)
-[[ "$regex" == *"(feature|bug|improvement|infra|epic)"* ]] \
-  || fail "expected (feature|bug|...) alternation, got '$regex'"
-[[ "$regex" == *"/issue-" ]] || fail "expected to end with /issue-, got '$regex'"
+TMPDIR_REGEX=$(mktemp -d)
+(
+  cd "$TMPDIR_REGEX"
+  git init -q
+  regex=$(sillok_branch_prefix_regex)
+  # v2 dropped labels.types from the schema; sillok_branch_prefix_regex falls
+  # back to a hardcoded alternation covering legacy + current branch type names.
+  [[ "$regex" == *"(feature|bug|improvement|infra|epic)"* ]] \
+    || { echo "FAIL: expected (feature|bug|...) alternation, got '$regex'"; exit 1; }
+  [[ "$regex" == *"/issue-" ]] || { echo "FAIL: expected to end with /issue-, got '$regex'"; exit 1; }
+)
+rm -rf "$TMPDIR_REGEX"
 pass "default regex contains type alternation + /issue-"
 
 echo "test: feature branch name matches generated regex"
-regex=$(sillok_branch_prefix_regex)
-test_branch="feature/issue-42-add-haptics"
-if [[ "$test_branch" =~ ^${regex}([0-9]+)-(.+)$ ]]; then
-  # BASH_REMATCH[1] = "feature" (from {type} alternation)
-  # BASH_REMATCH[2] = "42"
-  # BASH_REMATCH[3] = "add-haptics"
-  [[ "${BASH_REMATCH[2]}" == "42" ]] || fail "expected #42, got '${BASH_REMATCH[2]}'"
-  [[ "${BASH_REMATCH[3]}" == "add-haptics" ]] || fail "expected slug 'add-haptics', got '${BASH_REMATCH[3]}'"
-  pass "$test_branch parsed via regex"
-else
-  fail "branch '$test_branch' did not match regex '$regex'"
-fi
+TMPDIR_MATCH=$(mktemp -d)
+(
+  cd "$TMPDIR_MATCH"
+  git init -q
+  regex=$(sillok_branch_prefix_regex)
+  test_branch="feature/issue-42-add-haptics"
+  if [[ "$test_branch" =~ ^${regex}([0-9]+)-(.+)$ ]]; then
+    # BASH_REMATCH[1] = "feature" (from {type} alternation)
+    # BASH_REMATCH[2] = "42"
+    # BASH_REMATCH[3] = "add-haptics"
+    [[ "${BASH_REMATCH[2]}" == "42" ]] || { echo "FAIL: expected #42, got '${BASH_REMATCH[2]}'"; exit 1; }
+    [[ "${BASH_REMATCH[3]}" == "add-haptics" ]] || { echo "FAIL: expected slug 'add-haptics', got '${BASH_REMATCH[3]}'"; exit 1; }
+  else
+    echo "FAIL: branch '$test_branch' did not match regex '$regex'"; exit 1
+  fi
+)
+rm -rf "$TMPDIR_MATCH"
+pass "feature/issue-42-add-haptics parsed via regex"
 
 echo "test: epic branch also matches"
-regex=$(sillok_branch_prefix_regex)
-test_branch="epic/issue-42-notification-system"
-if [[ "$test_branch" =~ ^${regex}([0-9]+)-(.+)$ ]]; then
-  [[ "${BASH_REMATCH[2]}" == "42" ]] || fail "expected #42, got '${BASH_REMATCH[2]}'"
-  pass "$test_branch parsed via regex (epic case)"
-else
-  fail "branch '$test_branch' did not match regex '$regex'"
-fi
+TMPDIR_EPIC=$(mktemp -d)
+(
+  cd "$TMPDIR_EPIC"
+  git init -q
+  regex=$(sillok_branch_prefix_regex)
+  test_branch="epic/issue-42-notification-system"
+  if [[ "$test_branch" =~ ^${regex}([0-9]+)-(.+)$ ]]; then
+    [[ "${BASH_REMATCH[2]}" == "42" ]] || { echo "FAIL: expected #42, got '${BASH_REMATCH[2]}'"; exit 1; }
+  else
+    echo "FAIL: branch '$test_branch' did not match regex '$regex'"; exit 1
+  fi
+)
+rm -rf "$TMPDIR_EPIC"
+pass "epic/issue-42-notification-system parsed via regex"
 
 echo
 echo "All config.sh tests passed."

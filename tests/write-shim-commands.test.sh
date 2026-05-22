@@ -13,14 +13,14 @@ trap 'rm -rf "$TMPDIR_PROJECT"' EXIT
 
 echo "test: writes five shim files into .claude/commands on fresh project"
 bash "$SCRIPT" "$TMPDIR_PROJECT" >/dev/null
-for cmd in start design execute end epic; do
+for cmd in start design execute end story; do
   dest="$TMPDIR_PROJECT/.claude/commands/sillok-$cmd.md"
   [[ -f "$dest" ]] || fail "expected $dest to exist"
 done
 pass "five shim files written"
 
 echo "test: shim files contain the sillok-shim marker"
-for cmd in start design execute end epic; do
+for cmd in start design execute end story; do
   dest="$TMPDIR_PROJECT/.claude/commands/sillok-$cmd.md"
   grep -q '^sillok-shim: true$' "$dest" || fail "missing marker in $dest"
 done
@@ -50,7 +50,7 @@ bash "$SCRIPT" "$TMP2" >/dev/null
 contents=$(cat "$TMP2/.claude/commands/sillok-start.md")
 echo "$contents" | grep -q 'hand-written' || fail "foreign file was overwritten"
 echo "$contents" | grep -q 'sillok-shim: true' && fail "foreign file gained shim marker"
-# Other shims (design/execute/end/epic) should still be written.
+# Other shims (design/execute/end/story) should still be written.
 [[ -f "$TMP2/.claude/commands/sillok-design.md" ]] || fail "expected sillok-design.md to be written despite foreign sillok-start.md"
 rm -rf "$TMP2"
 pass "foreign sillok-start.md preserved; siblings still written"
