@@ -141,10 +141,12 @@ Used when the user is in the middle of a non-story work-unit branch that turned 
    issue_json=$(gh issue view "$N" --repo "$REPO" --json title,labels,body)
    title=$(echo "$issue_json" | jq -r '.title')
    summary=$(echo "$issue_json" | jq -r '.body' | awk '/^## Summary/{flag=1; next} /^## /{if(flag)exit} flag')
-   current_type=$(echo "$issue_json" | jq -r '[.labels[].name] | map(select(. == "feature" or . == "bug" or . == "improvement" or . == "infra")) | .[0] // ""')
+   # v2: type lives in the .type field, not labels
+   current_issue_type=$(gh api -H "X-GitHub-Api-Version: 2026-03-10" \
+     "/repos/$REPO/issues/$N" --jq '.type.name // ""')
    ```
 
-   If `current_type` is empty: ABORT — "Issue #$N has no recognized type label; promote manually."
+   If `current_issue_type` is empty OR equals `Story` or `Epic`: ABORT — "Issue #$N has type \`$current_issue_type\` — only Feature/Task/Bug issues can be promoted to Story."
 
 3. Check working-tree state:
 
@@ -157,9 +159,9 @@ Used when the user is in the middle of a non-story work-unit branch that turned 
 4. Confirm promotion with user:
 
    ```
-   Promote #$N (`$title`) from `$current_type` to `story`?
+   Promote #$N (`$title`) from `$current_issue_type` to `Story`?
    This will:
-     • Change #$N's GitHub issue type from $current_type to Story
+     • Change #$N's Issue Type from $current_issue_type to Story
      • Rename branch  $branch  →  story/issue-$N-<slug>
      • Push the new branch and delete the old remote branch
      • Re-link the new branch into the issue's Development panel
@@ -214,7 +216,7 @@ Used when the user is in the middle of a non-story work-unit branch that turned 
       sillok_link_branch "$ISSUE_NODE_ID" "$story_branch" "$BRANCH_SHA"
       ```
 
-      (The issue was already added to the project when it was first created as `$current_type` via `/sillok-start` — no project-add needed here.)
+      (The issue was already added to the project when it was first created as `$current_issue_type` via `/sillok-start` — no project-add needed here.)
 
    g. **Rewrite issue body:**
 
@@ -230,13 +232,13 @@ Used when the user is in the middle of a non-story work-unit branch that turned 
 
       ## Architecture
 
-      (Promoted from $current_type — fill in architecture as sub-features emerge.)
+      (Promoted from $current_issue_type — fill in architecture as sub-features emerge.)
 
       ## Sub-issues
 
       ## Context
 
-      (Original context preserved from the $current_type issue; expand as needed.)
+      (Original context preserved from the $current_issue_type issue; expand as needed.)
 
       ## Non-goals
       EOF
@@ -257,7 +259,7 @@ Used when the user is in the middle of a non-story work-unit branch that turned 
 6. Print summary:
 
    ```
-   ✅ Promoted #$N from $current_type to Story
+   ✅ Promoted #$N from $current_issue_type to Story
 
    Branch renamed: $branch → $story_branch
    Issue body: rewritten to story template
@@ -272,7 +274,7 @@ Used when the user is in the middle of a non-story work-unit branch that turned 
 ABORT cleanly (no side effects committed) if:
 
 - Working tree is dirty and user declines to stash (Step 3.3 `n` path).
-- Issue lacks a recognized type label (Step 3.2 fail).
+- Issue has no Issue Type, or its Issue Type is `Story` / `Epic` (Step 3.2 fail).
 - User declines confirmation at Step 3.4 (`n`).
 
 For any partial failure mid-promotion (e.g. branch rename succeeded but push failed), surface the exact state and the command to recover manually. Do NOT attempt to auto-rollback complex states.
