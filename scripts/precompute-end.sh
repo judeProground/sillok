@@ -201,4 +201,18 @@ else
   echo "$dirty" | sed 's/^/    /'
 fi
 
+echo
+echo "### Project status"
+source "${SCRIPT_DIR}/lib/project.sh" 2>/dev/null || true
+if command -v sillok_project_item_for_issue >/dev/null 2>&1; then
+  if [[ -n "${n:-}" ]]; then
+    item_id=$(sillok_project_item_for_issue "https://github.com/$REPO/issues/$n")
+    if [[ -n "$item_id" ]]; then
+      status=$(sillok_project_status_get "$item_id" || echo "")
+      echo "- Item ID: $item_id"
+      echo "- Status: ${status:-unknown}"
+    fi
+  fi
+fi
+
 exit 0
