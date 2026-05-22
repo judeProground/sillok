@@ -1,231 +1,342 @@
-# Support cross-repo PRD epic workflow (v2)
+# Cross-repo PRD epic workflow with Issue Types + Projects v2 (v2)
 
 **Issue:** [#14](https://github.com/judeProground/sillok/issues/14)
-**Status:** Designed
-**Authored:** 2026-05-21
+**Status:** Designed (pivoted 2026-05-22 from labels-based to Issue Types + Projects v2)
+**Authored:** 2026-05-21 (rev. 2026-05-22)
 
 ## Background
 
-Sillok currently assumes a **single-repo model**: spec lives in the issue body of the same repo where code lives, and the optional `epic` parent is also in that repo (with its integration branch alongside the code). This works for solo projects and single-repo teams.
+Sillok 1.x conflates several concerns into the label taxonomy:
 
-It does **not** fit large orgs where PRD authorship and code authorship live in separate repos:
+- **Work type** (`feature`, `bug`, `improvement`, `infra`, `epic`) — categorical, mutually exclusive
+- **Lifecycle stage** (`todo`, `designed`, `in-progress`, `in-review`) — sequential, sillok flips these as commands run
+- **Priority** (`p1`–`p4`) — orthogonal scalar
+- **Area** (`area:*`) — orthogonal categorical
 
-- PRDs are authored by PMs / planners in a dedicated repo (e.g. `myorg/prd`)
-- Frontend and backend code live in separate code repos (e.g. `myorg/frontend`, `myorg/backend`)
-- A single PRD usually fans out into work items across multiple code repos
+The labels-only model works at single-repo solo scale but breaks down at the org-wide multi-repo scale this org actually operates at:
 
-Today such teams cannot use sillok's parent-linking primitives (`/sillok-start --parent N`) because `--parent` accepts only a same-repo issue number.
+- Type labels must be bootstrapped per repo; drift is easy
+- Stage labels are invisible at the project / planning layer
+- No unified surface to view work across `progroundDev/*` repos
+- PRDs live elsewhere (Notion / planning docs); no cross-link to code issues
+- Mutual exclusivity of types is by convention, not enforced
+
+GitHub now ships two features that match this scope better:
+
+- **Issue Types** (org-level, GA): mutually-exclusive categorical metadata, defined once per org, applied per issue. API: `/orgs/{org}/issue-types`.
+- **Projects v2**: unified multi-repo board with custom status field, auto-add workflows, and built-in "item closed → Done" automation.
+
+Combined with the previously-locked cross-repo PRD direction, this lets sillok delegate each concern to its natural home.
 
 ## Goal
 
-Support a cross-repo PRD workflow where:
+Restructure sillok v2 so each concern lives where it belongs:
 
-- The **PRD** lives as an `epic`-labeled issue in a dedicated PRD repo, with the PRD content stored both inline in the issue body and as a markdown file in the same PRD repo
-- **Code-repo feature issues** reference the PRD epic as a cross-repo parent via GitHub's native sub-issue API
-- Each code repo continues to be sillok-managed at the same level of fidelity as today (label state machine, branch + worktree per feature, PR with `Closes #N`)
+| Concern | Where | Mechanism |
+|---|---|---|
+| Type (Epic, Story, Feature, Task, Bug) | **Issue Type** (org-level) | GitHub Issue Types REST API |
+| Lifecycle stage (Todo / In Design / In Progress / In QA / Done) | **Projects v2 Status field** | Project item status update via GraphQL / REST |
+| Priority (p1–p4) | Label | unchanged from v1 |
+| Area (`area:*`) | Label | unchanged from v1 |
+| Nature (improvement / refactor / infra / docs / security / performance) | Label (NEW) | new label class, ortho to type |
+| Cross-repo PRD parent | Sub-issue API | unchanged from prior v2 design (cross-repo `--parent`) |
 
 Out of band: the PRD repo's own conventions are user-controlled — sillok reads from but does not write to the PRD repo.
 
 ## Hierarchy
 
 ```
-PRD repo (myorg/prd)         Code repo (myorg/frontend)
-─────────────────────         ─────────────────────────
-[epic] PRD #42 ─────────────► [story] Composite #15  (optional composite layer)
+PRD repo (myorg/prd)         Code repos (myorg/{frontend,backend,...})
+─────────────────────         ─────────────────────────────────────────
+[Epic] PRD #42 ─────────────► [Story] Composite #15  (optional layer)
                               │           │
-                              │           ├─ [feature] #16
-                              │           └─ [feature] #17
+                              │           ├─ [Feature] #16
+                              │           └─ [Task] #17
                               │
-                              └─────────► [feature] #18  (direct child of PRD, no composite)
+                              └─────────► [Feature] #18  (direct child, no Story)
 ```
 
-- **Epic** = PRD, lives in PRD repo only. Sillok never creates these (user / PM does).
-- **Story** = optional in-repo composite. New name for what v1 called `epic` (in-repo). Always has an integration branch + worktree, like v1's epic.
-- **Feature / bug / improvement / infra** = work-unit issues, each ships one PR. Can be a direct child of either a Story or a cross-repo PRD epic.
+`Epic`, `Story`, `Feature`, `Task`, `Bug` are GitHub Issue Types (mutually exclusive, org-defined). Hierarchy is conventional, not enforced by GitHub — sub-issue parent-child relationships do the actual linking.
 
-## Locked design decisions (from brainstorm 2026-05-21)
+- **Epic** = PRD; lives in PRD repo. Sillok never creates these (PM / planner does).
+- **Story** = optional in-repo composite; has integration branch + worktree.
+- **Feature / Task / Bug** = atomic work-unit issues, each shipping one PR.
 
-1. **Hierarchy:** PRD epic → Story (composite, optional) → Feature.
-2. **PRD persistence:** PRD stored as both an issue (in PRD repo) and a markdown file in the same PRD repo. Sillok reads the issue body for the cross-repo parent context; the md file is for the user's diff history and version control. Sillok does not enforce a path convention for the file.
-3. **Cross-repo `Closes #N`:** Stays manual. The PRD epic in the PRD repo is closed by the user when all linked work ships; sillok does not attempt cross-repo auto-close because the GitHub behavior is fragile across org / permission boundaries.
-4. **Projects v2 integration:** Out of scope. Users wire up multi-repo Project boards themselves.
-5. **Label rename:** `epic` → `story` for the in-repo composite role. `epic` is reserved (semantically) for the cross-repo PRD layer.
-6. **Command rename:** `/sillok-epic` → `/sillok-story` (file rename + body wording change). Behavior identical to v1's `/sillok-epic` — creates composite issue + integration branch + worktree.
-7. **PRD integration depth:** "Light" — sillok adds a `prdRepo` config field and auto-suggests open PRD epics during `/sillok-start`. Sillok does not create / modify / close PRD issues. (A future `/sillok-prd` command for tighter PRD lifecycle handling is deferred to v3 — see *Out of scope*.)
-8. **Issue Types:** Out of scope. GitHub's native Issue Types feature is org-only, requires admin setup the maintainer does not have, and lacks gh CLI support (`cli/cli#9696` still open). Sillok continues to use labels.
+## Locked design decisions
+
+1. **Issue Type for "what is this work"** — 5 types: `Epic`, `Story`, `Feature`, `Task`, `Bug`.
+2. **Projects v2 status field for "where is this in the lifecycle"** — 5 statuses: `Todo`, `In Design`, `In Progress`, `In QA`, `Done`.
+3. **Labels for cross-cutting attributes**: priority, area, nature (improvement / refactor / infra / docs / security / performance).
+4. **Stage labels removed entirely** (was: `todo`, `designed`, `in-progress`, `in-review`, `backlog`). Replaced by project status.
+5. **Type labels removed entirely** (was: `feature`, `bug`, `improvement`, `infra`, `epic`). Replaced by Issue Types. `improvement` / `infra` survive as Nature labels.
+6. **One-time org setup**: org owner adds `Epic` and `Story` Issue Types via API or web UI (other 3 types — `Feature`, `Task`, `Bug` — already exist in `progroundDev`).
+7. **One-time project setup**: a Projects v2 board with a Status field configured with the 5 required option names (case-sensitive default; user-overridable via config).
+8. **Auto-add workflow handles initial state**: when an issue is created, the project's auto-add workflow adds it as `Todo` (or the configured initial status). Sillok does not handle initial project add.
+9. **Done is automated by project workflow**: project's built-in "item closed → Done" workflow handles the final transition. Sillok's `/sillok-end` opens a PR with `Closes #N`; on merge the issue closes; project flips status to `Done` automatically.
+10. **Sillok-driven status updates**: `/sillok-design` → `In Design`, `/sillok-execute` → `In Progress`, `/sillok-end` → `In QA`. Three transitions only — start and done are workflow-driven.
+11. **Cross-repo PRD** (unchanged from prior design): `prdRepo` config + `--parent owner/repo#N` syntax + cross-repo `addSubIssue` GraphQL mutation. Cross-repo `Closes #N` stays manual.
+12. **`/sillok-epic` renamed to `/sillok-story`**: command body unchanged in shape, but the Type label flip becomes an Issue Type set, and the integration branch is now `story/issue-N-...`.
 
 ## Architecture overview
 
-### Config schema additions (`schema/v1.json`, `templates/workflow.config.json`)
+### Config schema (`schema/v1.json`, `templates/workflow.config.json`)
 
 ```jsonc
 {
-  "prdRepo": "myorg/prd",  // optional. Empty = cross-repo PRD features disabled.
+  "$schema": "...",
+  "version": 1,
+
+  "repo": "myorg/frontend",
+  "baseBranch": "main",
+  "branchPrefix": "{type}/issue-",          // {type} lowercased at substitution
+
+  // NEW: cross-repo PRD reference
+  "prdRepo": "myorg/prd",                   // optional. Empty = cross-repo PRD disabled.
+
+  // NEW: Projects v2 integration
+  "project": {
+    "owner": "progroundDev",                // org owning the project (often same as code repo owner)
+    "number": 3,                            // project number
+    "statusField": "Status",                // status field name on the project (default "Status")
+    "statuses": {
+      "todo":     "Todo",
+      "design":   "In Design",
+      "progress": "In Progress",
+      "review":   "In QA",
+      "done":     "Done"
+    }
+  },
+
+  // CHANGED: types removed (now Issue Types), stages removed (now project status)
+  "types": {
+    "list":     ["Epic", "Story", "Feature", "Task", "Bug"],
+    "defaults": {
+      "feature":   "Feature",
+      "composite": "Story",
+      "prd":       "Epic"
+    }
+  },
+
   "labels": {
-    "types": ["feature", "bug", "improvement", "infra", "story"]
-    //                                                   ^^^^^ renamed from "epic"
-  }
+    "priorities": ["p1", "p2", "p3", "p4"],
+    "areas":      [],
+    "natures":    ["improvement", "refactor", "infra", "docs", "security", "performance"],
+    "defaults": {
+      "priority": "p3"
+    }
+  },
+
+  "worktree":  { "enabled": true, "dir": ".worktrees", "copyFiles": [] },
+  "install":   "",
+  "verify":    { "lint": "", "typecheck": "", "format": "" },
+  "docs":      { "specs": "docs/superpowers/specs", "plans": "docs/superpowers/plans" },
+  "commit":    { "coAuthor": "" },
+  "milestone": { "naming": "YYYY-MM-Wn", "sprintWeeks": 2, "weekStart": "monday" }
 }
 ```
 
-- `prdRepo` is **optional**. When empty (default), sillok behaves like v1 — `--parent N` accepts only same-repo issue numbers. When set, sillok enables cross-repo parent UX (auto-suggestion, validation).
-- `/sillok-init` does **not** auto-detect `prdRepo` (it's an org convention, not derivable from code). Init leaves the field empty and prints a one-line hint in its Step 11 summary: *"Cross-repo PRD: set `prdRepo` in workflow.config.json if your team uses a dedicated PRD repo"*.
+- `project` is required for v2 to function (status updates need it).
+- `types` is mostly informational at runtime — Issue Types are defined org-wide; this config tells sillok which names to use when applying.
+- `prdRepo` is optional.
 
-### Cross-repo `--parent` syntax
+### One-time org-level setup (required before `/sillok-init`)
 
-`/sillok-start` accepts three `--parent` forms:
+Org owner runs once:
 
-| Form | Resolves to |
-|---|---|
-| `--parent 42` | Same-repo issue #42 (v1 behavior, unchanged) |
-| `--parent myorg/prd#42` | Cross-repo issue #42 in `myorg/prd` |
-| `--parent https://github.com/myorg/prd/issues/42` | Same as above (URL form) |
+```bash
+# Add missing Issue Types (Epic and Story; Feature/Task/Bug already exist)
+gh api -X POST -H "X-GitHub-Api-Version: 2026-03-10" \
+  /orgs/progroundDev/issue-types \
+  -f name=Epic -f color=purple -f description='Cross-repo PRD parent'
 
-When `prdRepo` is configured, the `precompute-start.sh` "Open epics" section lists both in-repo stories and cross-repo PRD epics, prefixed with the repo:
-
-```
-### Open epics
-- (in this repo)  #15  [story]  Add cart UI
-- (in myorg/prd)  #42  [epic]   Mobile checkout v2
-- (in myorg/prd)  #43  [epic]   Improve onboarding
+gh api -X POST -H "X-GitHub-Api-Version: 2026-03-10" \
+  /orgs/progroundDev/issue-types \
+  -f name=Story -f color=blue -f description='In-repo composite, has integration branch'
 ```
 
-Sub-issue linking uses the existing `addSubIssue` GraphQL mutation but with the parent ID fetched from the cross-repo `gh api graphql ... repository(owner: ..., name: ...)`. Same-org cross-repo sub-issue linking is supported by GitHub natively.
+Plus, in the Project's Status field (web UI), ensure these option names exist: `Todo`, `In Design`, `In Progress`, `In QA`, `Done`. Plus enable the built-in "Auto-add to project" and "Item closed → Done" workflows.
 
-### Command-by-command changes
+Sillok detects missing types / statuses at `/sillok-init` and surfaces copy-paste fixes — does not attempt creation itself (member-level credentials cannot create types).
+
+### Per-command behavior
 
 #### `/sillok-init`
 
-- Step 6 (`workflow.config.json` writer) emits `prdRepo: ""` and uses `story` in `labels.types` (was `epic`).
-- Step 9 (`bootstrap-labels.sh` invocation) creates the `story` label in the user's repo. The old `epic` label is **not** deleted by sillok — left in place so historical issues remain valid.
-- Step 11 summary prints one extra line about `prdRepo` (only when the field is empty in the freshly written config).
+1. Verify org Issue Types: read `GET /orgs/{owner}/issue-types` and assert the 5 from config exist. If missing, surface copy-paste admin commands and abort.
+2. Verify project: read project metadata; assert the configured Status field exists with the 5 configured option names. If missing, surface UI link + abort.
+3. Verify auto-add workflow is enabled (best-effort — workflows API access is limited). If we can't verify, print a hint.
+4. Bootstrap labels: `priorities`, `natures`, `areas`. No `types`, no `stages`.
+5. Write config (idempotent — don't overwrite existing).
+6. Shims + CLAUDE.md import + docs dirs — unchanged.
+7. Summary: report which Issue Types, project, and labels were verified.
 
 #### `/sillok-start`
 
-- Step 1 (Parse args) extends `--parent` parser to recognize `owner/repo#N` and URL forms in addition to bare integers.
-- Step 4 (Auto-suggest parent) consumes the precompute output's new cross-repo entries when `prdRepo` is set.
-- Step 8 (Sub-issue linking) branches: if the parent is cross-repo, the parent's GraphQL `node id` is fetched with the parent's owner/name; the child's id continues to use the local repo's owner/name. The `addSubIssue` mutation accepts both ids transparently.
-- Step 8 (Parent label check) skips the `epic` label assertion for cross-repo parents — the PRD repo's label conventions are user-controlled and sillok cannot enforce them.
-- Step 9b (Integration branch detection) skips the parent body parse for cross-repo parents (PRD epics never have a `## Integration branch` section) and falls back to the configured `baseBranch`.
+1. Parse `--parent` (supports `N`, `owner/repo#N`, or full URL — same as prior design).
+2. Build issue payload: title, body, labels (priority + nature + area as applicable), and **Issue Type** (via REST `type` field in `POST /repos/{owner}/{repo}/issues` — new in 2026-03-10 API).
+3. Create issue. Capture `<N>`.
+4. If parent, link as sub-issue via `addSubIssue` GraphQL (cross-repo capable).
+5. **Auto-add workflow** picks up the new issue and adds it to the project with initial status (`Todo`). Sillok waits briefly and verifies the project item exists; if not, manually `gh project item-add` + set status to `Todo`.
+6. Cut branch + worktree (unchanged).
+7. Output: issue URL + branch + worktree path + **project item URL**.
 
 #### `/sillok-design`
 
-- Step 4 (Brainstorming seed) fetches the cross-repo PRD body when the issue's `Parent:` line references a cross-repo issue, and passes it to the brainstorming skill as additional context. Implementation: a single `gh issue view <N> --repo <parent-owner/parent-name> --json body` call.
-- All other steps (write spec, paste into local issue body, flip label) are unchanged — the feature issue still lives in the code repo.
+1. Precompute (state derivation) — unchanged in shape; also looks up project item ID for the current issue.
+2. Pre-condition check: current project status should be `Todo`. If `In Design` already, allow continuation; otherwise warn.
+3. If parent is cross-repo, fetch PRD body and seed brainstorming (unchanged from prior design).
+4. Brainstorming → write spec to `docs/superpowers/specs/<date>-<slug>.md`.
+5. User review loop (unchanged).
+6. **Update project status: `Todo` → `In Design`** via GraphQL mutation `updateProjectV2ItemFieldValue`.
+7. Paste spec inline into issue body (unchanged).
+
+#### `/sillok-execute`
+
+1. Precompute. Pre-condition: status `In Design`.
+2. Write plan, dispatch superpowers subagents, run verify gate (unchanged).
+3. **Update project status: `In Design` → `In Progress`** at the start of execution.
+
+#### `/sillok-end`
+
+1. Precompute. Pre-condition: status `In Progress`.
+2. Open PR with `Closes #N` (unchanged).
+3. **Update project status: `In Progress` → `In QA`**.
+4. On merge: issue closes; project's built-in "item closed → Done" workflow flips status to `Done`. Sillok does not touch `Done`.
 
 #### `/sillok-story` (renamed from `/sillok-epic`)
 
-- File rename: `commands/sillok-epic.md` → `commands/sillok-story.md`.
-- Body global replacement: "epic" → "story" throughout (where the word refers to the in-repo composite role, not the PRD-layer concept).
-- Type label applied: `story` (was `epic`).
-- Integration branch prefix unchanged in template — `{type}/issue-` resolves to `story/issue-N-...` automatically because `{type}` substitutes from the label name.
-- Promotion-mode transition unchanged: from a `feature` / `bug` / etc. branch, the user runs `/sillok-story` to promote the current issue's type to `story` and rename its branch to `story/issue-N-...`.
+1. File rename: `commands/sillok-epic.md` → `commands/sillok-story.md`. Wording: "epic" → "story" throughout.
+2. Issue Type applied: `Story`.
+3. Integration branch: `story/issue-<N>-<slug>` (via `{type}/issue-` template with lowercase substitution).
+4. Promotion mode: from a `feature/issue-N-...` branch, promote = update Issue Type to `Story` (`PATCH` on issue) + rename branch.
 
-#### `/sillok-execute`, `/sillok-end`
+### Helper scripts
 
-Unchanged. Both operate within the local repo:
-- `/sillok-execute` reads the feature's spec from the local issue body, writes a plan, dispatches subagents.
-- `/sillok-end` opens the PR; `Closes #N` closes the local feature issue. The cross-repo PRD epic stays open and is closed manually by the user.
+- **`scripts/lib/project.sh`** (NEW): wrappers for project item lookup, status get/set, field ID resolution. Functions:
+  - `sillok_project_item_for_issue <issue-url>` → returns project item ID
+  - `sillok_project_status_get <item-id>` → returns current status name
+  - `sillok_project_status_set <item-id> <status-key>` → sets status (key in [todo, design, progress, review, done])
+  - `sillok_project_field_id <field-name>` → returns field ID (cached)
+  - `sillok_project_option_id <field-name> <option-name>` → returns option ID (cached)
+- **`scripts/lib/issue-types.sh`** (NEW): wrappers for Issue Type API. Functions:
+  - `sillok_issue_type_id <type-name>` → returns type ID (cached, org-level)
+  - `sillok_issue_type_set <repo> <issue-N> <type-name>` → applies type
+- **`scripts/precompute-*.sh`**: extend to look up project item + current status. Output includes a new `### Project status` section.
+- **`scripts/bootstrap-labels.sh`**: bootstrap priorities + natures + areas only. No types, no stages.
 
-### Shared helpers (`scripts/lib/config.sh`, no changes)
+### Label taxonomy after v2
 
-`sillok_config prdRepo` returns the configured value or empty string (via the existing config resolution chain). No new helper functions required.
+| Category | Examples | Source |
+|---|---|---|
+| Priority | `p1`, `p2`, `p3`, `p4` | sillok bootstraps |
+| Area | `area:auth`, `area:billing`, etc. | sillok detects + bootstraps |
+| Nature | `improvement`, `refactor`, `infra`, `docs`, `security`, `performance` | sillok bootstraps (NEW class) |
+| ~~Type~~ | ~~`feature`, `bug`, `epic`, ...~~ | **moved to Issue Types** |
+| ~~Stage~~ | ~~`todo`, `designed`, ...~~ | **moved to project status** |
 
-### Bootstrap-labels script (`scripts/bootstrap-labels.sh`)
+## Migration from sillok 1.x
 
-- Replace the hard-coded `epic` entry with `story`. Color stays the same hue or moves to a distinct one (suggestion: purple `8B5CF6`) — visual cue that the role differs from v1.
-- The script remains idempotent (`|| true` masks "label already exists" errors).
-- Pre-existing `epic` labels are left untouched. Migration is documented but not automated (see *Migration*).
+1.x users have label-based types AND stages, no project setup, no Issue Types. v2 is a real migration, not a drop-in upgrade.
 
-### Shim writer (`scripts/write-shim-commands.sh`)
+### Required user actions
 
-Generates `.claude/commands/sillok-story.md` (was `sillok-epic.md`). The shim writer already enumerates the canonical command names; this change is one line in the array.
+1. **Update the plugin** to v2.0 via the marketplace.
+2. **Org owner adds the two missing Issue Types** (Epic, Story) using the commands above.
+3. **Owner creates / configures a Projects v2 board** with the required 5 Status field options + enables Auto-add + "item closed → Done" workflows.
+4. **Re-run `/sillok-init`** in each project. It will:
+   - Verify Issue Types and project (abort with copy-paste fix if missing).
+   - Bootstrap new label classes (`natures`) and remove old ones (`types`, `stages`).
+   - Write the updated config schema.
+5. **Backfill existing issues** (optional but recommended) via the migration script (`scripts/migrate-v1-to-v2.sh`):
+   - For each open issue: detect old type label → set new Issue Type → strip old type label.
+   - For each open issue: detect old stage label → find project item → set status → strip old stage label.
+   - Idempotent; safe to re-run.
 
-### Skill updates (`skills/gh-issue-management/SKILL.md`)
+The migration script is run by the user explicitly (`bash scripts/migrate-v1-to-v2.sh <repo>`), not by `/sillok-init`. Forcing migration in init would be too destructive.
 
-- Replace `epic` type-label entry with `story`. Reword the description: "Composite in-repo issue (≥2 sub-issues) with integration branch."
-- Add a separate paragraph under **Type vs Structure** explaining the cross-repo PRD layer:
-  > A cross-repo `epic` parent lives in the org's PRD repo and is referenced from code-repo issues via `--parent owner/repo#N`. Sillok does not enforce conventions on the PRD repo.
-- Add a cross-repo sub-issue linking example showing the parent query against a different `owner`/`name`.
+### What breaks
 
-### Rule template updates (`templates/rules/gh-issue-conventions.md`)
+- Any external automation that filters by `epic`, `feature`, etc. labels will need updating to filter by Issue Type instead.
+- Any external automation that flips stage labels needs updating to use project status.
+- The plugin install itself stays backward-discoverable (old `/sillok-epic` shim could redirect to `/sillok-story` for one release), but the underlying API surfaces have moved.
 
-Same content updates as the skill above. The rule file is the always-on imported source-of-truth; keep it consistent with the skill.
+### What stays
 
-## Migration (existing sillok 1.x users)
-
-For users upgrading from 1.x to 2.0:
-
-1. **Update the plugin** via the marketplace (`/plugin update sillok`).
-2. **Re-run `/sillok-init`** in each existing project. Init is idempotent — it will not overwrite the existing `workflow.config.json`, but its Step 9 (`bootstrap-labels.sh`) will idempotently create the `story` label in the repo.
-3. **Manually add `story` to `labels.types`** in `workflow.config.json` (add `"story"`, optionally remove `"epic"`). Without this step, init's label-list awareness drifts from what v2 commands hardcode. Init does not auto-edit existing configs by design.
-4. **(Optional) Re-tag historical `epic`-labeled issues** with a one-liner:
-   ```bash
-   gh issue list --repo <repo> --label epic --state all --json number --jq '.[].number' | \
-     xargs -I{} gh issue edit {} --remove-label epic --add-label story
-   ```
-
-Steps 1–3 are required for v2 commands (`/sillok-story` and `/sillok-start --parent <N>` linking to an in-repo composite) to work. Step 4 is optional cleanup — sillok does not auto-relabel because doing so per-issue without consent is too destructive for a tool.
-
-**Why v2 doesn't read the type-label name from config:** the renamed `/sillok-story` command applies `--label story` directly. Making the label name fully data-driven (read from config at runtime) would touch every command and is larger surface than v2 needs. v3's command-to-skill refactor ([#15](https://github.com/judeProground/sillok/issues/15)) is a natural place to revisit this.
-
-CHANGELOG will surface this 4-step procedure verbatim.
+- Branch prefix template (`{type}/issue-` still substitutes — values change from `feature/`, `bug/` to `feature/`, `story/`, `task/`, `bug/`)
+- Sub-issue parent-child semantics
+- `Closes #N` PR auto-close
+- Spec / plan file conventions
+- Worktree management
+- `gh-issue-management` skill (substantially rewritten content)
 
 ## Verification plan
 
-- **Schema test:** validate that a config with `prdRepo` set passes `jq` schema check.
-- **Parser test:** `precompute-start.sh` correctly distinguishes `--parent 42` vs `--parent owner/repo#42` vs URL form.
-- **Cross-repo GraphQL test:** sub-issue link works when parent is in a different repo (same org). Use a fixture: two dummy repos under the same test org.
-- **Backwards-compat test:** with `prdRepo` empty, sillok 2.0 behaves identically to v1 for same-repo workflows.
-- **Migration smoke test:** an existing 1.x project re-running `/sillok-init` does not destabilize — no overwritten config, `story` label appended, `epic` label preserved.
+- **Issue Types**: integration test that `gh api /orgs/<org>/issue-types` returns the expected 5 types after admin setup.
+- **Project**: integration test that the configured project number resolves and Status field has the expected 5 options.
+- **Status transitions**: an end-to-end smoke test that creates a fixture issue, runs each sillok command, and asserts the project status advances correctly.
+- **Cross-repo parent**: existing prior-design verification still applies — sub-issue link works across repos in the same org.
+- **Migration script**: a fixture repo with v1-style labels → run migration → assert types + statuses are correctly set, old labels removed.
+- **Backwards-compat**: with `prdRepo` empty + no project configured (legacy single-repo scenario), sillok should... actually no — v2 requires `project` config. Document this as a hard requirement.
 
-Existing test suite (`tests/*.test.sh`) updates:
-- Update any test asserting the `epic` label name to assert either label depending on config.
-- Add a new `tests/cross-repo-parent.test.sh` exercising the `--parent owner/repo#N` parsing path.
+Existing test suite (`tests/*.test.sh`) — substantial updates:
+
+- Remove tests asserting `epic` / `feature` / etc. labels exist.
+- Add tests for Issue Type read + apply.
+- Add tests for project item lookup + status update.
+- Add a `tests/migrate-v1-to-v2.test.sh` for the migration script.
 
 ## Out of scope (v3+)
 
 Tracked in [#15](https://github.com/judeProground/sillok/issues/15) and / or future issues.
 
-- **`/sillok-prd`** — a new command for PRD lifecycle:
-  - Input modes: `--from notion <url>` (via Notion MCP), `--from file <path>` (local md), `--from issue <owner/repo#N>` (copy from existing issue), interactive.
-  - Operation: write PRD as `prd/<slug>.md` to `prdRepo`, create `epic` issue there with summary + link.
-  - Currently the PM / planner creates the PRD by hand; v3 brings PRD authoring into the sillok-driven flow for engineers who lead the PRD as well.
-- **v3 refactor — commands into skill wrappers** ([#15](https://github.com/judeProground/sillok/issues/15)). Each command file collapses to ~10 lines and the procedural body moves into a sibling skill. Blocked by v2 to avoid combining two large-surface changes.
-- **GitHub Issue Types migration.** Conceptually a better fit for cross-repo work (org-wide consistency, mutually-exclusive types) but blocked on three things: gh CLI native support (`cli/cli#9696` still open), the maintainer's org-admin authority, and dogfooding feasibility on `judeProground/sillok` (User account, not Org).
-- **Cross-repo `Closes #N` automation.** GitHub's behavior is fragile across org / permission boundaries; we explicitly keep this manual.
-- **Projects v2 auto-registration.** Users own their multi-repo board setup.
+- **`/sillok-prd`** — PRD authoring command. Notion MCP fetch, local md, or copy-from-issue. Creates Epic-typed issue in `prdRepo` with linked md file. (Same v3 scope as before.)
+- **v3 refactor — commands into skill wrappers** ([#15](https://github.com/judeProground/sillok/issues/15)). Now even more valuable: the helper libraries (`project.sh`, `issue-types.sh`) are skill-shaped logic that wants to be a proper skill package.
+- **Cross-repo `Closes #N` automation**. Still fragile. Still manual.
+- **Projects v2 auto-add workflow auto-configuration**. Requires Workflow API access that may not be in member role. Currently sillok only verifies presence; future could attempt creation if org grants the bot the right scope.
+- **Custom org fields beyond status / priority**. The `issue-field-values` REST endpoint is shipping; future sillok could let users add e.g. `sprint`, `estimate`, `risk` org-level custom fields and assign them per-issue. Out of scope for v2 — labels handle priority and area for now.
+- **Pure dogfood mode** (no org, no project). Sillok 2.x will require an org + project; solo-user workflows on User-owned repos are not a target. Such users can stay on 1.x or use the migration off-ramp.
 
 ## Changed files (full list)
 
 | File | Change |
 |---|---|
-| `schema/v1.json` | Add optional `prdRepo` field with `owner/repo` pattern; update `labels.types` default to include `story` |
-| `templates/workflow.config.json` | Add `"prdRepo": ""`, rename `"epic"` → `"story"` in `labels.types` |
-| `templates/rules/gh-issue-conventions.md` | Label rename, cross-repo conventions paragraph |
-| `commands/sillok-init.md` | Step 11 hint about `prdRepo` |
-| `commands/sillok-start.md` | `--parent` cross-repo parsing, Step 4 / 8 / 9b branching for cross-repo |
-| `commands/sillok-design.md` | Step 4 cross-repo PRD body fetch |
-| `commands/sillok-epic.md` → `commands/sillok-story.md` | File rename + body wording change |
-| `scripts/precompute-start.sh` | `prdRepo` open-epic enumeration |
-| `scripts/precompute-design.sh` | Cross-repo parent recognition for design context |
-| `scripts/bootstrap-labels.sh` | `story` instead of `epic`; preserve old `epic` label |
-| `scripts/write-shim-commands.sh` | Shim filename change |
-| `skills/gh-issue-management/SKILL.md` | Label rename, cross-repo sub-issue example |
-| `tests/*.test.sh` | Update label assertions; add cross-repo parent test |
-| `README.md` | Update workflow examples for cross-repo case |
-| `CHANGELOG.md` | v2.0.0 entry with breaking changes (label / command rename) and migration tip |
-| `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | Version bump to `2.0.0` |
+| `schema/v1.json` | Add `prdRepo`, `project.*`, `types.*`, `labels.natures`. Remove `labels.types`, `labels.stages` from defaults. Major schema bump still v1 (additive + clear deprecations). |
+| `templates/workflow.config.json` | Reshape to new schema; `project` section required. |
+| `templates/rules/gh-issue-conventions.md` | Major rewrite: Issue Types model, project status lifecycle, new label classes. |
+| `commands/sillok-init.md` | Add type/project verification steps; remove stage/type label bootstrap; add migration-detection hint. |
+| `commands/sillok-start.md` | Set Issue Type at creation; resolve project item; cross-repo `--parent` parsing. |
+| `commands/sillok-design.md` | Status update to `In Design`; cross-repo PRD body fetch. |
+| `commands/sillok-execute.md` | Status update to `In Progress` at start. |
+| `commands/sillok-end.md` | Status update to `In QA` at PR open. |
+| `commands/sillok-epic.md` → `commands/sillok-story.md` | File rename + Issue Type set to `Story` + integration branch prefix update. |
+| `scripts/lib/project.sh` | NEW. Project item + status helpers. |
+| `scripts/lib/issue-types.sh` | NEW. Issue Type helpers. |
+| `scripts/precompute-*.sh` | Add project item + status to derived state output. |
+| `scripts/bootstrap-labels.sh` | Drop types, drop stages. Add `natures`. |
+| `scripts/write-shim-commands.sh` | Shim filename change (`sillok-epic.md` → `sillok-story.md`). |
+| `scripts/migrate-v1-to-v2.sh` | NEW. Bulk migrate old labels → Issue Types + project statuses. |
+| `skills/gh-issue-management/SKILL.md` | Major rewrite. Issue Type apply / lookup, project status, label classes. |
+| `tests/*.test.sh` | Update label assertions; add type + project + migration tests. |
+| `README.md` | Update workflow examples, prerequisites (org + project required). |
+| `CHANGELOG.md` | v2.0.0 entry with breaking changes, migration 5-step procedure. |
+| `.claude-plugin/{plugin.json,marketplace.json}` | Version bump to `2.0.0`. |
 
 ## Versioning
 
-- **v2.0.0** — major bump (breaking: `epic` label → `story` label, `/sillok-epic` command → `/sillok-story` command).
-- Migration is one shell one-liner per repo, documented in CHANGELOG.
-- Per the repo's release process (CLAUDE.md), version bumps must update all three places: `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `CHANGELOG.md`.
+- **v2.0.0** — major bump.
+- Breaking changes:
+  - Type labels removed → Issue Types (org-level)
+  - Stage labels removed → Project status
+  - `/sillok-epic` renamed → `/sillok-story`
+  - New requirement: Projects v2 board with prerequisite setup
+  - New requirement: org-level Issue Types (Epic, Story added; Feature/Task/Bug must exist)
+- Per repo release process (CLAUDE.md): bump in `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `CHANGELOG.md`.
 
 ## References
 
 - Issue [#14](https://github.com/judeProground/sillok/issues/14) — this work
 - Issue [#15](https://github.com/judeProground/sillok/issues/15) — v3 follow-up (skill-wrapper refactor)
-- `cli/cli#9696` — gh CLI native Issue Types support (open, blocks v3 Issue Types migration)
-- GitHub Sub-issues API ([docs](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/adding-sub-issues)) — same-org cross-repo linking confirmed supported
+- GitHub REST API — Issue Types: `/orgs/{org}/issue-types` (`X-GitHub-Api-Version: 2026-03-10`)
+- GitHub REST API — Projects v2 items: `/orgs/{org}/projectsV2/{number}/items` (2026-03-10)
+- GitHub REST API — Issue field values: `/repos/{owner}/{repo}/issues/{N}/issue-field-values` (2026-03-10 — kept in mind for future custom field support)
+- GitHub Sub-issues API — same-org cross-repo linking confirmed supported
