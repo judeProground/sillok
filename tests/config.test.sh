@@ -124,14 +124,20 @@ TMPDIR_REGEX=$(mktemp -d)
   cd "$TMPDIR_REGEX"
   git init -q
   regex=$(sillok_branch_prefix_regex)
-  # v2 dropped labels.types from the schema; sillok_branch_prefix_regex falls
-  # back to a hardcoded alternation covering legacy + current branch type names.
-  [[ "$regex" == *"(feature|bug|improvement|infra|epic)"* ]] \
-    || { echo "FAIL: expected (feature|bug|...) alternation, got '$regex'"; exit 1; }
+  # v2: types.list (Title-cased) is lowercased and Epic is filtered out
+  # (PRDs live in the PRD repo; no epic/* code branches). The default
+  # template ships Story/Feature/Task/Bug, so the regex should contain
+  # those four lowercased and NOT contain epic.
+  for needle in story feature task bug; do
+    [[ "$regex" == *"$needle"* ]] \
+      || { echo "FAIL: expected regex to contain '$needle', got '$regex'"; exit 1; }
+  done
+  [[ "$regex" != *"epic"* ]] \
+    || { echo "FAIL: expected Epic to be filtered out, got '$regex'"; exit 1; }
   [[ "$regex" == *"/issue-" ]] || { echo "FAIL: expected to end with /issue-, got '$regex'"; exit 1; }
 )
 rm -rf "$TMPDIR_REGEX"
-pass "default regex contains type alternation + /issue-"
+pass "default regex contains v2 type alternation + /issue-, no epic"
 
 echo "test: feature branch name matches generated regex"
 TMPDIR_MATCH=$(mktemp -d)
@@ -153,21 +159,35 @@ TMPDIR_MATCH=$(mktemp -d)
 rm -rf "$TMPDIR_MATCH"
 pass "feature/issue-42-add-haptics parsed via regex"
 
-echo "test: epic branch also matches"
-TMPDIR_EPIC=$(mktemp -d)
+echo "test: story branch also matches (v2 in-repo integration branch)"
+TMPDIR_STORY=$(mktemp -d)
 (
-  cd "$TMPDIR_EPIC"
+  cd "$TMPDIR_STORY"
   git init -q
   regex=$(sillok_branch_prefix_regex)
-  test_branch="epic/issue-42-notification-system"
+  test_branch="story/issue-42-notification-system"
   if [[ "$test_branch" =~ ^${regex}([0-9]+)-(.+)$ ]]; then
     [[ "${BASH_REMATCH[2]}" == "42" ]] || { echo "FAIL: expected #42, got '${BASH_REMATCH[2]}'"; exit 1; }
   else
     echo "FAIL: branch '$test_branch' did not match regex '$regex'"; exit 1
   fi
 )
-rm -rf "$TMPDIR_EPIC"
-pass "epic/issue-42-notification-system parsed via regex"
+rm -rf "$TMPDIR_STORY"
+pass "story/issue-42-notification-system parsed via regex"
+
+echo "test: epic branch does NOT match (v2 PRDs live in PRD repo)"
+TMPDIR_NOEPIC=$(mktemp -d)
+(
+  cd "$TMPDIR_NOEPIC"
+  git init -q
+  regex=$(sillok_branch_prefix_regex)
+  test_branch="epic/issue-42-notification-system"
+  if [[ "$test_branch" =~ ^${regex}([0-9]+)-(.+)$ ]]; then
+    echo "FAIL: epic/* branch should NOT match v2 regex, but did: '$regex'"; exit 1
+  fi
+)
+rm -rf "$TMPDIR_NOEPIC"
+pass "epic/* branches correctly excluded from v2 regex"
 
 echo
 echo "All config.sh tests passed."
