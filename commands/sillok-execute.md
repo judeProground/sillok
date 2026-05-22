@@ -28,12 +28,12 @@ If multiple spec matches (rare; only if user redesigned with a new date), the pr
 
 ## Step 2: Pre-condition
 
-Stage label was extracted by precompute (step 1). Apply:
+Project status was extracted by precompute (step 1). Apply:
 
-- `designed` → proceed.
-- `todo` → ABORT with "Spec not yet designed. Run `/sillok-design`."
-- `in-progress` → this is a resume; proceed to step 3 with awareness that some/all tasks may already be done.
-- `in-review` → ABORT with "PR already opened. Run `/sillok-end` to finalize, or fix the label manually."
+- `In Design` → proceed.
+- `Todo` → ABORT with "Spec not yet designed. Run `/sillok-design`."
+- `In Progress` → resume; some/all tasks may already be done.
+- `In QA` → ABORT with "PR already opened. Run `/sillok-end` to finalize, or fix the status manually."
 
 Spec existence was verified in step 1 — abort already handled there.
 
@@ -61,7 +61,13 @@ After the plan is written and writing-plans hands off to subagent-driven-develop
 
 - The plan file is at `<PLAN_DIR>/<today-date>-<slug>.md`.
 - Update issue body to add `## Plan link\n\n<PLAN_DIR>/<date>-<slug>.md` (fetch body, mutate, post back).
-- Flip stage label: `gh issue edit <N> --remove-label designed --add-label in-progress`.
+- Set project status to `In Progress`:
+
+  ```bash
+  source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/project.sh"
+  ITEM_ID=$(sillok_project_item_for_issue "https://github.com/$REPO/issues/$N")
+  sillok_project_status_set "$ITEM_ID" progress
+  ```
 
 ## Step 5: If plan exists — resume
 
@@ -102,7 +108,7 @@ Print summary:
 - Number of commits landed: `git rev-list --count <base-sha>..HEAD`
 - Files changed: `git diff --stat <base-sha> HEAD`
 - Final whole-branch review state: clean / had-blockers (note iteration count if multiple)
-- Stage label confirmed `in-progress`
+- Project status confirmed `In Progress`
 - Issue body updated with Plan link
 
 Handoff: "Next: `/sillok-end` to push the branch and open the PR."
