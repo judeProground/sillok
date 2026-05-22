@@ -4,9 +4,13 @@
 #
 # usage: bootstrap-labels.sh <owner>/<name> [--config <path>]
 #
-# Without --config: creates the 14 universal labels (5 types + 5 stages + 4 priorities).
+# Without --config: creates the 10 universal labels (6 natures + 4 priorities).
 # With --config: additionally reads labels.areas from the given workflow.config.json
 # and creates one area:<name> label per entry (color c9d4dd, muted blue-gray).
+#
+# Note: categorical types (feature/bug/epic) are managed via GitHub Issue Types now (see
+# scripts/issue-types.sh), and stages (backlog/todo/.../in-review) are managed via GitHub
+# Projects Status (see scripts/project.sh). Neither is a label class anymore.
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
@@ -38,19 +42,13 @@ create() {
 
 echo "Bootstrapping labels on $REPO..."
 
-# Types
-create feature      FD3D00 "New functionality"
-create bug          FF8800 "Something is broken"
-create improvement  0AD6B4 "Enhance existing functionality"
-create infra        BC52FE "Tooling, CI, config, refactor — not user-facing"
-create epic         FF003C "Parent tracking issue with >=3 sub-issues"
-
-# Stages
-create backlog      E6E6EB "Raw idea, not yet prioritized"
-create todo         CBCCD4 "Prioritized, ready to start"
-create designed     AAACB7 "Spec written and accepted"
-create in-progress  5D5DE8 "Plan exists, implementation underway"
-create in-review    1F57FF "PR is open"
+# Natures — cross-cutting attributes orthogonal to Issue Type
+create improvement  0e8a16 "Enhance existing functionality"
+create refactor     0e8a16 "Restructure code without changing behavior"
+create infra        0e8a16 "Tooling, CI, build, config — not user-facing"
+create docs         0e8a16 "Documentation only"
+create security     0e8a16 "Security-relevant change or finding"
+create performance  0e8a16 "Performance-relevant change"
 
 # Priorities
 create p1           FD3D00 "Urgent"
