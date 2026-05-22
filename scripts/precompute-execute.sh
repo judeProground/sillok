@@ -70,26 +70,6 @@ if [[ -n "$prefix_regex" && "$branch" =~ ^${prefix_regex}([0-9]+)-(.+)$ ]]; then
     labels=$(echo "$issue_json" | jq -r '[.labels[].name] | join(", ")')
     echo "- Title: $title"
     echo "- Labels: $labels"
-
-    stage=$(echo "$issue_json" \
-      | jq -r '[.labels[].name] | map(select(. == "backlog" or . == "todo" or . == "designed" or . == "in-progress" or . == "in-review")) | .[0] // "none"')
-    echo "- Stage: \`$stage\`"
-
-    case "$stage" in
-      designed) ;;
-      in-progress)
-        echo "- ℹ️  Stage \`in-progress\` — this is a resume. Some/all tasks may already be done."
-        ;;
-      todo)
-        echo "- ⚠️  Stage \`todo\` — spec not yet designed. ABORT: run \`/sillok-design\` first."
-        ;;
-      in-review)
-        echo "- ⚠️  Stage \`in-review\` — PR already opened. ABORT: run \`/sillok-end\` to finalize, or fix the label."
-        ;;
-      *)
-        echo "- ⚠️  Stage \`$stage\` — unexpected for execute step."
-        ;;
-    esac
   else
     echo "- ⚠️  \`gh issue view #$n\` failed (auth?) — LLM must fetch manually"
   fi

@@ -71,23 +71,6 @@ if [[ -n "$prefix_regex" && "$branch" =~ ^${prefix_regex}([0-9]+)-(.+)$ ]]; then
     issue_body=$(echo "$issue_json" | jq -r '.body // ""')
     echo "- Title: $title"
     echo "- Labels: $labels"
-
-    stage=$(echo "$issue_json" \
-      | jq -r '[.labels[].name] | map(select(. == "backlog" or . == "todo" or . == "designed" or . == "in-progress" or . == "in-review")) | .[0] // "none"')
-    echo "- Stage: \`$stage\`"
-
-    case "$stage" in
-      todo) ;;
-      designed)
-        echo "- ⚠️  Stage already \`designed\` — spec exists. Run \`/sillok-execute\` instead, or confirm redesign with user."
-        ;;
-      in-progress|in-review)
-        echo "- ⚠️  Stage \`$stage\` — design phase normally complete. Confirm intent with user before proceeding."
-        ;;
-      *)
-        echo "- ⚠️  Stage \`$stage\` — unexpected for design step."
-        ;;
-    esac
   else
     echo "- ⚠️  \`gh issue view #$n\` failed (auth?) — LLM must fetch manually"
     issue_body=""
