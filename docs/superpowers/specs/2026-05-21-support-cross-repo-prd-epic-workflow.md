@@ -173,12 +173,13 @@ Sillok detects missing types / statuses at `/sillok-init` and surfaces copy-past
 #### `/sillok-start`
 
 1. Parse `--parent` (supports `N`, `owner/repo#N`, or full URL — same as prior design).
-2. Build issue payload: title, body, labels (priority + nature + area as applicable), and **Issue Type** (via REST `type` field in `POST /repos/{owner}/{repo}/issues` — new in 2026-03-10 API).
+2. Build issue payload: title, body, labels (priority + nature + area as applicable), **assignee** (`@me` — resolves to the gh-authenticated user), and **Issue Type** (via REST `type` field in `POST /repos/{owner}/{repo}/issues` — new in 2026-03-10 API).
 3. Create issue. Capture `<N>`.
 4. If parent, link as sub-issue via `addSubIssue` GraphQL (cross-repo capable).
-5. **Auto-add workflow** picks up the new issue and adds it to the project with initial status (`Todo`). Sillok waits briefly and verifies the project item exists; if not, manually `gh project item-add` + set status to `Todo`.
+5. **Add to project + set status to `Todo` deterministically.** Sillok always calls `gh project item-add` (idempotent — returns existing item ID if one exists) and then sets the Status field to the configured `todo` value. This is reliable regardless of whether the project's auto-add workflow has fired or not. Auto-add can stay enabled; sillok's call just becomes a no-op duplicate that confirms placement.
 6. Cut branch + worktree (unchanged).
-7. Output: issue URL + branch + worktree path + **project item URL**.
+7. **Push branch + link to issue (Development panel).** After the worktree exists, push the new branch to `origin` and call the `createLinkedBranch` GraphQL mutation (`issueId` + `oid` + `name`). GitHub's Development panel auto-links PRs via `Closes #N` in PR body but does **not** auto-link branches — they must be explicitly registered via this mutation. Without this step the Development panel stays empty until the first PR opens.
+8. Output: issue URL + branch + worktree path + project item URL + linked branch URL.
 
 #### `/sillok-design`
 
@@ -206,14 +207,17 @@ Sillok detects missing types / statuses at `/sillok-init` and surfaces copy-past
 #### `/sillok-story` (renamed from `/sillok-epic`)
 
 1. File rename: `commands/sillok-epic.md` → `commands/sillok-story.md`. Wording: "epic" → "story" throughout.
-2. Issue Type applied: `Story`.
-3. Integration branch: `story/issue-<N>-<slug>` (via `{type}/issue-` template with lowercase substitution).
-4. Promotion mode: from a `feature/issue-N-...` branch, promote = update Issue Type to `Story` (`PATCH` on issue) + rename branch.
+2. Issue Type applied: `Story` (via 2026-03-10 REST `type` field on issue creation).
+3. **Assignee:** `@me` (same as `/sillok-start`).
+4. **Project add + status `Todo`** — same deterministic pattern as `/sillok-start` step 5.
+5. Integration branch: `story/issue-<N>-<slug>` (via `{type}/issue-` template with lowercase substitution). **Push + linked branch** — same as `/sillok-start` step 7.
+6. Promotion mode: from a `feature/issue-N-...` branch, promote = update Issue Type to `Story` (`PATCH` on issue) + rename branch + re-link branch (the old `createLinkedBranch` entry references the old branch name; needs to be re-registered after rename).
 
 ### Helper scripts
 
 - **`scripts/lib/project.sh`** (NEW): wrappers for project item lookup, status get/set, field ID resolution. Functions:
   - `sillok_project_item_for_issue <issue-url>` → returns project item ID
+  - `sillok_project_item_add <issue-url>` → idempotent add; returns item ID (existing or new)
   - `sillok_project_status_get <item-id>` → returns current status name
   - `sillok_project_status_set <item-id> <status-key>` → sets status (key in [todo, design, progress, review, done])
   - `sillok_project_field_id <field-name>` → returns field ID (cached)
@@ -221,6 +225,9 @@ Sillok detects missing types / statuses at `/sillok-init` and surfaces copy-past
 - **`scripts/lib/issue-types.sh`** (NEW): wrappers for Issue Type API. Functions:
   - `sillok_issue_type_id <type-name>` → returns type ID (cached, org-level)
   - `sillok_issue_type_set <repo> <issue-N> <type-name>` → applies type
+- **`scripts/lib/dev-link.sh`** (NEW): wrappers for the Development panel (linked branches). Functions:
+  - `sillok_link_branch <issue-node-id> <branch-name> <commit-sha>` → calls `createLinkedBranch` GraphQL mutation; idempotent (re-registration during promotion is supported)
+  - `sillok_issue_node_id <repo> <issue-N>` → returns the issue's GraphQL node ID (cached per command run)
 - **`scripts/precompute-*.sh`**: extend to look up project item + current status. Output includes a new `### Project status` section.
 - **`scripts/bootstrap-labels.sh`**: bootstrap priorities + natures + areas only. No types, no stages.
 
@@ -309,8 +316,9 @@ Tracked in [#15](https://github.com/judeProground/sillok/issues/15) and / or fut
 | `commands/sillok-execute.md` | Status update to `In Progress` at start. |
 | `commands/sillok-end.md` | Status update to `In QA` at PR open. |
 | `commands/sillok-epic.md` → `commands/sillok-story.md` | File rename + Issue Type set to `Story` + integration branch prefix update. |
-| `scripts/lib/project.sh` | NEW. Project item + status helpers. |
-| `scripts/lib/issue-types.sh` | NEW. Issue Type helpers. |
+| `scripts/lib/project.sh` | NEW. Project item + status helpers (idempotent add, status get/set). |
+| `scripts/lib/issue-types.sh` | NEW. Issue Type helpers (apply type at issue creation + on promotion). |
+| `scripts/lib/dev-link.sh` | NEW. Linked-branch helpers (Development panel registration via `createLinkedBranch`). |
 | `scripts/precompute-*.sh` | Add project item + status to derived state output. |
 | `scripts/bootstrap-labels.sh` | Drop types, drop stages. Add `natures`. |
 | `scripts/write-shim-commands.sh` | Shim filename change (`sillok-epic.md` → `sillok-story.md`). |
