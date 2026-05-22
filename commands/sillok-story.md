@@ -1,10 +1,10 @@
 ---
-description: Create or promote-to an epic — always backed by a real integration branch and worktree. From a non-sillok branch creates a fresh epic; from inside a sillok feature/bug/improvement/infra branch offers promotion of the current issue.
+description: Create or promote-to a story — always backed by a real integration branch and worktree. From a non-sillok branch creates a fresh story; from inside a sillok feature/bug/improvement/infra branch offers promotion of the current issue. A story is an in-repo composite (parent tracking issue + integration branch + worktree) typed `Story` on GitHub.
 ---
 
-You are running `/sillok-epic`.
+You are running `/sillok-story`.
 
-An **epic** in sillok is a parent tracking issue PLUS a real integration branch (`epic/issue-<N>-<slug>`) PLUS a worktree. Sub-features under the epic cut from and PR back to this integration branch. The epic itself eventually PRs to the configured `baseBranch` (usually `main`) with a merge commit (NOT squash), so sub-feature commits remain visible in the base-branch history.
+A **story** in sillok is a parent tracking issue PLUS a real integration branch (`story/issue-<N>-<slug>`) PLUS a worktree. Sub-features under the story cut from and PR back to this integration branch. The story itself eventually PRs to the configured `baseBranch` (usually `main`) with a merge commit (NOT squash), so sub-feature commits remain visible in the base-branch history.
 
 ## Step 1: Detect context
 
@@ -20,24 +20,24 @@ branch=$(git branch --show-current 2>/dev/null || echo "")
 
 Decide branch context:
 
-- If `$branch` matches `^epic/issue-([0-9]+)-`: ABORT — "You're already on an epic branch. To add a sub-feature, run `/sillok-start --parent <N>`."
+- If `$branch` matches `^story/issue-([0-9]+)-`: ABORT — "You're already on a story branch. To add a sub-feature, run `/sillok-start --parent <N>`."
 - Else if `$branch` matches `$prefix_regex` and the captured type is one of `feature|bug|improvement|infra`: this is **promotion context** (§3). Extract `<N>` and `<slug>` by walking BASH_REMATCH (find first numeric, then next capture for slug, and remember the matched type token).
 - Else: this is **standalone creation** (§2).
 
-## Step 2: Standalone epic creation
+## Step 2: Standalone story creation
 
 Used when the user is on `main`, an unrelated branch, or a fresh worktree.
 
-1. Prompt: "Epic title (verb-form imperative or short noun-phrase OK — epics are tracking issues, not single actions)."
+1. Prompt: "Story title (verb-form imperative or short noun-phrase OK — stories are tracking issues, not single actions)."
 2. Prompt for 1-line summary and a few lines of Context. Architecture and Non-goals are optional — leave blank if user has none.
-3. Compose the epic body using the epic template from `.claude/sillok/rules/gh-issue-conventions.md`:
+3. Compose the story body using the story template from `.claude/sillok/rules/gh-issue-conventions.md`:
 
    ```markdown
    <1-line summary>
 
    ## Integration branch
 
-   `epic/issue-<TBD>-<slug>`
+   `story/issue-<TBD>-<slug>`
 
    ## Architecture
    <optional>
@@ -52,16 +52,21 @@ Used when the user is on `main`, an unrelated branch, or a fresh worktree.
    <optional>
    ```
 
-4. Create the issue:
+4. Create the issue (typed as `Story` via the REST issue-types API):
 
    ```bash
-   gh issue create --repo "$REPO" \
-     --title "<epic title>" \
-     --label epic --label todo --label p3 \
-     --body "<body>"
+   issue_url=$(gh api -X POST \
+     -H "X-GitHub-Api-Version: 2026-03-10" \
+     "/repos/$REPO/issues" \
+     -f title="<story title>" \
+     -f body="<body>" \
+     -f type="Story" \
+     -f "assignees[]=$(gh api user --jq .login)" \
+     -f "labels[]=p3" \
+     --jq '.html_url')
    ```
 
-   Capture `<N>` from the URL output.
+   Capture `<N>` from the URL (`${issue_url##*/}`).
 
 5. Compute slug:
 
@@ -71,12 +76,12 @@ Used when the user is on `main`, an unrelated branch, or a fresh worktree.
    slug_without_n="${slug_full#${N}-}"
    ```
 
-6. Resolve epic branch name:
+6. Resolve story branch name:
 
    ```bash
    user_token=$(git config user.name | awk '{print tolower($1)}' | tr -cd '[:alnum:]')
-   resolved_epic_prefix=$(sillok_branch_prefix_resolve epic "$user_token")
-   epic_branch="${resolved_epic_prefix}${N}-${slug_without_n}"
+   resolved_story_prefix=$(sillok_branch_prefix_resolve story "$user_token")
+   story_branch="${resolved_story_prefix}${N}-${slug_without_n}"
    ```
 
 7. Update the issue body to replace the `<TBD>` placeholder in `## Integration branch` with the real branch name. Post the updated body back via `gh issue edit <N> -F -` (stdin heredoc).
@@ -85,25 +90,40 @@ Used when the user is on `main`, an unrelated branch, or a fresh worktree.
 
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/scripts/setup-feature-worktree.sh" \
-     "${N}-${slug_without_n}" "$epic_branch" "$BASE_BRANCH"
+     "${N}-${slug_without_n}" "$story_branch" "$BASE_BRANCH"
    ```
 
 9. Push the branch to origin (so sub-features can cut from it):
 
    ```bash
    worktree_path="<worktreeDir>/${N}-${slug_without_n}"   # use the path setup-feature-worktree printed
-   (cd "$worktree_path" && git push -u origin "$epic_branch")
+   (cd "$worktree_path" && git push -u origin "$story_branch")
    ```
 
-10. Print summary:
+10. Link the branch into the issue's Development panel and add the issue to the project board with Status=Todo:
+
+    ```bash
+    # Linked branch — populate Development panel
+    BRANCH_SHA=$(cd "$worktree_path" && git rev-parse HEAD)
+    source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dev-link.sh"
+    ISSUE_NODE_ID=$(sillok_issue_node_id "$REPO" "$N")
+    sillok_link_branch "$ISSUE_NODE_ID" "$story_branch" "$BRANCH_SHA"
+
+    # Project add + status Todo
+    source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/project.sh"
+    ITEM_ID=$(sillok_project_item_add "$issue_url")
+    sillok_project_status_set "$ITEM_ID" todo
+    ```
+
+11. Print summary:
 
     ```
-    ✅ Epic created
-    
+    ✅ Story created
+
     Issue: <URL>
-    Branch: <epic_branch>
+    Branch: <story_branch>
     Worktree: <worktree_path>
-    
+
     Next:
     - cd <worktree_path>
     - /sillok-start --parent <N>   to add a sub-feature
@@ -111,7 +131,7 @@ Used when the user is on `main`, an unrelated branch, or a fresh worktree.
 
 ## Step 3: Promotion (current branch is a sillok feature/bug/improvement/infra)
 
-Used when the user is in the middle of a non-epic work-unit branch that turned out bigger than expected.
+Used when the user is in the middle of a non-story work-unit branch that turned out bigger than expected.
 
 1. Already extracted in Step 1: `<N>`, `<slug>`, `<matched_type>`.
 
@@ -137,12 +157,13 @@ Used when the user is in the middle of a non-epic work-unit branch that turned o
 4. Confirm promotion with user:
 
    ```
-   Promote #$N (`$title`) from `$current_type` to `epic`?
+   Promote #$N (`$title`) from `$current_type` to `story`?
    This will:
-     • Change #$N's type label from $current_type to epic
-     • Rename branch  $branch  →  epic/issue-$N-<slug>
+     • Change #$N's GitHub issue type from $current_type to Story
+     • Rename branch  $branch  →  story/issue-$N-<slug>
      • Push the new branch and delete the old remote branch
-     • Rewrite the issue body to the epic template (preserves Summary)
+     • Re-link the new branch into the issue's Development panel
+     • Rewrite the issue body to the story template (preserves Summary)
      • Insert ## Integration branch section
      ${dirty:+• Stash current changes and (optionally) move them into a new sub-feature}
    ```
@@ -155,38 +176,49 @@ Used when the user is in the middle of a non-epic work-unit branch that turned o
       ```bash
       stash_ref=""
       if [[ -n "$dirty" ]]; then
-        git stash push -m "sillok-epic-promotion-${N}"
+        git stash push -m "sillok-story-promotion-${N}"
         stash_ref=$(git rev-parse stash@{0})
       fi
       ```
 
-   b. **Flip the label:**
+   b. **Set the GitHub issue type to Story:**
       ```bash
-      gh issue edit "$N" --repo "$REPO" --remove-label "$current_type" --add-label epic
+      source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/issue-types.sh"
+      sillok_issue_type_set "$REPO" "$N" Story
       ```
 
-   c. **Resolve new epic branch name:**
+   c. **Resolve new story branch name:**
       ```bash
       user_token=$(git config user.name | awk '{print tolower($1)}' | tr -cd '[:alnum:]')
-      resolved_epic_prefix=$(sillok_branch_prefix_resolve epic "$user_token")
-      epic_branch="${resolved_epic_prefix}${N}-${slug}"
+      resolved_story_prefix=$(sillok_branch_prefix_resolve story "$user_token")
+      story_branch="${resolved_story_prefix}${N}-${slug}"
       ```
 
    d. **Rename local branch:**
       ```bash
-      git branch -m "$branch" "$epic_branch"
+      git branch -m "$branch" "$story_branch"
       ```
 
    e. **Push new + delete old on remote:**
       ```bash
-      git push -u origin "$epic_branch"
+      git push -u origin "$story_branch"
       # Old branch may not exist on remote; ignore failure.
       git push origin --delete "$branch" 2>/dev/null || true
       ```
 
-   f. **Rewrite issue body:**
+   f. **Re-link branch into the issue's Development panel:**
+      ```bash
+      source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dev-link.sh"
+      ISSUE_NODE_ID=$(sillok_issue_node_id "$REPO" "$N")
+      BRANCH_SHA=$(git rev-parse HEAD)
+      sillok_link_branch "$ISSUE_NODE_ID" "$story_branch" "$BRANCH_SHA"
+      ```
 
-      Build the new body from the epic template, preserving the original `$summary`. Use `gh issue edit -F -`:
+      (The issue was already added to the project when it was first created as `$current_type` via `/sillok-start` — no project-add needed here.)
+
+   g. **Rewrite issue body:**
+
+      Build the new body from the story template, preserving the original `$summary`. Use `gh issue edit -F -`:
 
       ```bash
       gh issue edit "$N" --repo "$REPO" -F - <<EOF
@@ -194,7 +226,7 @@ Used when the user is in the middle of a non-epic work-unit branch that turned o
 
       ## Integration branch
 
-      \`$epic_branch\`
+      \`$story_branch\`
 
       ## Architecture
 
@@ -212,25 +244,25 @@ Used when the user is in the middle of a non-epic work-unit branch that turned o
 
       The user can edit the body afterwards to flesh out Architecture / Context / Non-goals.
 
-   g. **Handle the stash:**
+   h. **Handle the stash:**
 
       If `stash_ref` was set, prompt: "Move the stashed changes into a new sub-feature now? (y/n)"
 
-      - On `y`: prompt for sub-feature title. Then run the `/sillok-start --parent $N` flow (create sub-issue, set BASE_BRANCH=$epic_branch, run setup-feature-worktree.sh). After the new worktree exists, apply the stash inside it:
+      - On `y`: prompt for sub-feature title. Then run the `/sillok-start --parent $N` flow (create sub-issue, set BASE_BRANCH=$story_branch, run setup-feature-worktree.sh). After the new worktree exists, apply the stash inside it:
         ```bash
         (cd "<new sub-feature worktree>" && git stash apply "$stash_ref" && git stash drop "$stash_ref")
         ```
-      - On `n`: stash stays — print "Stash ref: $stash_ref. Run `git stash pop` here on the epic branch to recover, or move it manually later."
+      - On `n`: stash stays — print "Stash ref: $stash_ref. Run `git stash pop` here on the story branch to recover, or move it manually later."
 
 6. Print summary:
 
    ```
-   ✅ Promoted #$N from $current_type to epic
-   
-   Branch renamed: $branch → $epic_branch
-   Issue body: rewritten to epic template
+   ✅ Promoted #$N from $current_type to Story
+
+   Branch renamed: $branch → $story_branch
+   Issue body: rewritten to story template
    ${stash_handled:+Sub-feature created: <URL>}
-   
+
    Next:
    - /sillok-start --parent $N  to add more sub-features
    ```
