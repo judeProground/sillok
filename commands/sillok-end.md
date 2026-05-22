@@ -1,5 +1,5 @@
 ---
-description: Push branch, create PR per pr-convention, flip stage label in-progress → in-review on the active sub-issue, update parent legacy checkbox if any. Does NOT auto-merge. Done note embedded in PR body Summary section.
+description: Push branch, create PR per pr-convention, set project status to In QA on the active sub-issue, update parent legacy checkbox if any. Does NOT auto-merge. Done note embedded in PR body Summary section.
 ---
 
 You are running the `/sillok-end` slash command for the the configured GitHub repository.
@@ -21,7 +21,7 @@ Read the markdown block. Show it back to the user as the current state summary.
 - **Single-issue mode**: precompute resolved `<N>`, `<slug>`, parent `<M>` (or none), plan path, task stats, existing PR.
 - **Umbrella mode**: prompt user "Which sub-issue are you closing with this PR? Reply with the issue number." Active issue = that sub-issue. ALSO:
   - List other still-open sub-issues of the umbrella's parent epic: `gh issue list --repo "$REPO" --state open --search "in:body Parent: #<parent>"`. Add a `Closes #N` line per sub-issue in the PR body.
-  - Include `Closes #<parent>` IF this PR is the LAST sub-issue going `in-review` (epic-completing).
+  - Include `Closes #<parent>` IF this PR is the LAST sub-issue going to `In QA` (epic-completing).
 - **Other branch**: ABORT.
 
 ### Mode: epic-finalize (precompute reported)
@@ -53,7 +53,7 @@ For epic-finalize mode, `PR_BASE=$(sillok_config baseBranch)` directly — no pa
 
 All checks below were already performed by precompute (step 1). Apply the results:
 
-1. **Stage label.** Must be `in-progress`. If `in-review` (PR likely exists, see check #5), redirect to update-only flow. Anything else → ABORT.
+1. **Project status.** Must be `In Progress`. If `In QA` or `Done` (PR likely exists, see check #5), redirect to update-only flow. Anything else → ABORT.
 2. **Plan exists.** Required. precompute reported the path or `⚠️  No plan found` (ABORT in that case).
 3. **Plan task completion.** precompute reported `X done / Y open`. If `Y > 0`: prompt "Plan has `<Y>` open task(s). Continue with PR? (y/N)". User can override (e.g., punting last cleanup task to a follow-up issue).
 4. **Working tree.** precompute listed dirty files (if any). If dirty: prompt "Working tree has uncommitted changes (see above). Commit first / stash / abort? (commit / stash / abort)". Do NOT auto-stash silently — the user must see and decide.
@@ -162,19 +162,25 @@ gh pr create \
 
 Capture the PR URL from output.
 
-## Step 7: Flip stage label
+## Step 7: Update project status
 
 **Single-issue mode:**
 
-`gh issue edit <N> --remove-label in-progress --add-label in-review`
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/project.sh"
+ITEM_ID=$(sillok_project_item_for_issue "https://github.com/$REPO/issues/$N")
+sillok_project_status_set "$ITEM_ID" review
+```
 
-**Umbrella mode:** flip the **active sub-issue only**:
+**Umbrella mode:** update the **active sub-issue only**:
 
-`gh issue edit <N> --remove-label in-progress --add-label in-review`
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/project.sh"
+ITEM_ID=$(sillok_project_item_for_issue "https://github.com/$REPO/issues/$N")
+sillok_project_status_set "$ITEM_ID" review
+```
 
-Do NOT flip the umbrella's parent label. The parent will close via `Closes #<parent>` when the user merges; its labels stay as-is.
-
-Do NOT pre-create labels (`gh label create in-review` etc.). The standard label set is bootstrapped at repo setup. If the `gh issue edit --add-label` call fails because a label is missing, surface the gap to the user — don't silently create.
+Do NOT update the umbrella's parent status. The parent will close via `Closes #<parent>` when the user merges; its status stays as-is.
 
 ## Step 8: Update active issue body
 
@@ -205,7 +211,7 @@ Print PR URL. STOP. Do NOT run `gh pr merge`. The user reviews the PR (themselve
 Print:
 
 - PR URL: `<URL>`
-- Stage label flipped on `#<N>`: `in-progress → in-review`
+- Project status on `#<N>`: `In QA`
 - Issue body updated with PR link
 - Parent checkbox updated (if legacy syntax present at `#<M>`)
 - Handoff: "Done. Review the PR; merge when ready. The issue auto-closes on merge via `Closes #<N>` in the PR body."
