@@ -39,6 +39,8 @@ SHIM_STATUS=fail
 CLAUDE_MD_STATUS=fail
 AREA_STATUS=fail
 LABELS_STATUS=fail
+TYPES_STATUS=fail
+PROJECT_STATUS=fail
 ```
 
 ## Step 2: Detect repo and base branch
@@ -49,6 +51,35 @@ BASE_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'
 ```
 
 If `REPO` is empty, set a warning flag (printed at end). The user will need to fill `repo` in the generated config manually.
+
+## Step 2b: Verify org Issue Types
+
+```bash
+OWNER="${REPO%%/*}"
+expected_types=("Epic" "Story" "Feature" "Task" "Bug")
+existing_types=$(gh api -H "X-GitHub-Api-Version: 2026-03-10" "/orgs/$OWNER/issue-types" --jq '.[].name' 2>/dev/null || echo "")
+
+missing=()
+for t in "${expected_types[@]}"; do
+  if ! echo "$existing_types" | grep -qx "$t"; then
+    missing+=("$t")
+  fi
+done
+
+if [[ ${#missing[@]} -gt 0 ]]; then
+  echo "[sillok-init] Required org issue types missing: ${missing[*]}"
+  echo "  Ask your org owner to run:"
+  for t in "${missing[@]}"; do
+    echo "    gh api -X POST -H 'X-GitHub-Api-Version: 2026-03-10' /orgs/$OWNER/issue-types -f name=$t"
+  done
+  echo "  Or via UI: https://github.com/organizations/$OWNER/settings/issue-types"
+  TYPES_STATUS=missing
+else
+  TYPES_STATUS=ok
+fi
+```
+
+`TYPES_STATUS` is initialized to `fail` in Step 1 and surfaces in the Step 11 summary. A `missing` value triggers the ⚠️ warnings headline.
 
 ## Step 3: Detect package manager and verify commands
 
@@ -135,6 +166,27 @@ else
       "repo": $repo,
       "baseBranch": $baseBranch,
       "branchPrefix": $branchPrefix,
+      "prdRepo": "",
+      "project": {
+        "owner": "",
+        "number": 0,
+        "statusField": "Status",
+        "statuses": {
+          "todo": "Todo",
+          "design": "In Design",
+          "progress": "In Progress",
+          "review": "In QA",
+          "done": "Done"
+        }
+      },
+      "types": {
+        "list": ["Epic", "Story", "Feature", "Task", "Bug"],
+        "defaults": {
+          "feature": "Feature",
+          "composite": "Story",
+          "prd": "Epic"
+        }
+      },
       "worktree": { "enabled": true, "dir": ".worktrees", "copyFiles": $copyFiles },
       "install": $install,
       "verify": { "lint": $lint, "typecheck": $typecheck, "format": $format },
@@ -142,11 +194,10 @@ else
       "commit": { "coAuthor": "" },
       "milestone": { "naming": "YYYY-MM-Wn", "sprintWeeks": 2, "weekStart": "monday" },
       "labels": {
-        "types": ["feature","bug","improvement","infra","epic"],
-        "stages": ["backlog","todo","designed","in-progress","in-review"],
-        "priorities": ["p1","p2","p3","p4"],
+        "priorities": ["p1", "p2", "p3", "p4"],
         "areas": [],
-        "defaults": { "type": "feature", "stage": "todo", "priority": "p3" }
+        "natures": ["improvement", "refactor", "infra", "docs", "security", "performance"],
+        "defaults": { "priority": "p3" }
       }
     }' > "$CFG"
 fi
@@ -287,6 +338,39 @@ The `--config` flag picks up `labels.areas` from the config (empty by default) a
 
 If `$REPO` is empty (detection failed), skip with a warning that the user must run `bash ${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-labels.sh <owner>/<repo> --config <path-to-config>` manually.
 
+## Step 9b: Verify project + Status field options
+
+If `project.owner` and `project.number` are configured, verify the project exists and the Status field has the expected option names.
+
+```bash
+PROJ_OWNER=$(jq -r '.project.owner' "$CFG")
+PROJ_NUM=$(jq -r '.project.number' "$CFG")
+if [[ -n "$PROJ_OWNER" && "$PROJ_NUM" != "0" && "$PROJ_NUM" != "null" ]]; then
+  expected_opts=("Todo" "In Design" "In Progress" "In QA" "Done")
+  actual_opts=$(gh api graphql -f query="{ organization(login: \"$PROJ_OWNER\") { projectV2(number: $PROJ_NUM) { field(name: \"Status\") { ... on ProjectV2SingleSelectField { options { name } } } } } }" --jq '.data.organization.projectV2.field.options[].name' 2>/dev/null || echo "")
+
+  proj_missing=()
+  for opt in "${expected_opts[@]}"; do
+    if ! echo "$actual_opts" | grep -qx "$opt"; then
+      proj_missing+=("$opt")
+    fi
+  done
+
+  if [[ ${#proj_missing[@]} -gt 0 ]]; then
+    echo "[sillok-init] Project $PROJ_OWNER/projects/$PROJ_NUM Status field missing options: ${proj_missing[*]}"
+    echo "  Add via UI: https://github.com/orgs/$PROJ_OWNER/projects/$PROJ_NUM/settings"
+    PROJECT_STATUS=incomplete
+  else
+    PROJECT_STATUS=ok
+  fi
+else
+  PROJECT_STATUS=unconfigured
+  echo "[sillok-init] Cross-repo PRD: set 'project.owner' and 'project.number' in workflow.config.json to enable status transitions"
+fi
+```
+
+`PROJECT_STATUS` is initialized to `fail` in Step 1. Values: `ok` (project verified), `incomplete` (Status field missing options), `unconfigured` (project not yet set in config — informational, not a warning).
+
 ## Step 10: Ensure spec/plan dirs
 
 ```bash
@@ -307,10 +391,14 @@ Compute the headline status icon from sub-step outcomes:
 #   CLAUDE_MD_STATUS= ok | fail                    (Step 8)
 #   AREA_STATUS     = auto-picked | none-detected | none-confident | skip-preserved | fail   (Step 8b)
 #   LABELS_STATUS   = ok | skipped-no-repo | fail  (Step 9)
+#   TYPES_STATUS    = ok | missing | fail          (Step 2b)
+#   PROJECT_STATUS  = ok | incomplete | unconfigured | fail   (Step 9b)
 
 # Critical steps — must all succeed for ✅
 if [[ "$CONFIG_STATUS" == "fail" || "$RULES_STATUS" == "fail" || "$CLAUDE_MD_STATUS" == "fail" || "$LABELS_STATUS" == "fail" ]]; then
   HEADLINE="❌ sillok init FAILED"
+elif [[ "$TYPES_STATUS" == "missing" || "$PROJECT_STATUS" == "incomplete" ]]; then
+  HEADLINE="⚠️  sillok initialized (with warnings — see below)"
 elif [[ "$SHIM_STATUS" == "fail" || "$AREA_STATUS" == "fail" ]]; then
   HEADLINE="⚠️  sillok initialized (with warnings — see below)"
 else
@@ -335,6 +423,8 @@ Created:
 - CLAUDE.md (appended Sillok import block)             [<CLAUDE_MD_STATUS>]
 - <SPEC_DIR>/ and <PLAN_DIR>/ (ensured)
 - Labels on <REPO>                                     [<LABELS_STATUS>]
+- Org Issue Types (Epic/Story/Feature/Task/Bug)        [<TYPES_STATUS>]
+- Project + Status options                             [<PROJECT_STATUS>]
 ```
 
 **Area-label sub-summary** (always printed when relevant):
