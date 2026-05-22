@@ -65,9 +65,10 @@ if [[ -n "$prefix_regex" && "$branch" =~ ^${prefix_regex}([0-9]+)-(.+)$ ]]; then
   echo "- Issue #: $n"
   echo "- Slug: \`$slug\`"
 
-  if issue_json=$(gh issue view "$n" --repo "$REPO" --json title,labels 2>/dev/null); then
+  if issue_json=$(gh issue view "$n" --repo "$REPO" --json title,labels,body 2>/dev/null); then
     title=$(echo "$issue_json" | jq -r '.title')
     labels=$(echo "$issue_json" | jq -r '[.labels[].name] | join(", ")')
+    issue_body=$(echo "$issue_json" | jq -r '.body // ""')
     echo "- Title: $title"
     echo "- Labels: $labels"
 
@@ -89,6 +90,7 @@ if [[ -n "$prefix_regex" && "$branch" =~ ^${prefix_regex}([0-9]+)-(.+)$ ]]; then
     esac
   else
     echo "- ⚠️  \`gh issue view #$n\` failed (auth?) — LLM must fetch manually"
+    issue_body=""
   fi
 
   # Spec existence — slug-only glob (any earlier date matches)
@@ -99,6 +101,44 @@ if [[ -n "$prefix_regex" && "$branch" =~ ^${prefix_regex}([0-9]+)-(.+)$ ]]; then
     echo "- Found: \`$spec_match\` — prompt user: continue / overwrite / cancel"
   else
     echo "- None — will create at \`$SPEC_DIR/$(date +%Y-%m-%d)-$slug.md\`"
+  fi
+
+  # Parse parent (could be same-repo "Parent: #N" or cross-repo "Parent: owner/repo#N")
+  parent_line=$(echo "$issue_body" | grep -m1 -E '^Parent:' || true)
+  parent_repo=""
+  parent_n=""
+  if [[ "$parent_line" =~ Parent:[[:space:]]+([^/]+/[^#]+)#([0-9]+) ]]; then
+    parent_repo="${BASH_REMATCH[1]}"
+    parent_n="${BASH_REMATCH[2]}"
+  elif [[ "$parent_line" =~ Parent:[[:space:]]+#([0-9]+) ]]; then
+    parent_repo="$REPO"
+    parent_n="${BASH_REMATCH[1]}"
+  fi
+
+  if [[ -n "$parent_n" ]]; then
+    echo
+    echo "### Parent"
+    if [[ "$parent_repo" == "$REPO" ]]; then
+      echo "- Same-repo parent: #$parent_n"
+    else
+      echo "- Cross-repo parent: $parent_repo#$parent_n (PRD epic)"
+    fi
+  fi
+
+  # Project status
+  echo
+  echo "### Project status"
+  # shellcheck source=lib/project.sh
+  source "${SCRIPT_DIR}/lib/project.sh" 2>/dev/null || true
+  if command -v sillok_project_item_for_issue >/dev/null 2>&1; then
+    item_id=$(sillok_project_item_for_issue "https://github.com/$REPO/issues/$n" || echo "")
+    if [[ -n "$item_id" ]]; then
+      status=$(sillok_project_status_get "$item_id" || echo "")
+      echo "- Item ID: $item_id"
+      echo "- Status: ${status:-unknown}"
+    else
+      echo "- (not in project — will be added at /sillok-design step)"
+    fi
   fi
 
 elif [[ "$branch" =~ ^feature/(.+)$ ]]; then
