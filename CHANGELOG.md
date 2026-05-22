@@ -6,6 +6,32 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-05-22
+
+### Breaking
+- **Type labels removed.** Categorical work types (`feature`, `bug`, `improvement`, `infra`, `epic`) are no longer labels. Issues use **GitHub Issue Types** (org-level), introduced in the 2026-03-10 API. Migration script: `bash scripts/migrate-v1-to-v2.sh <repo>` (re-runs idempotently).
+- **Stage labels removed.** Lifecycle stage (`todo`, `designed`, `in-progress`, `in-review`) moved to **Projects v2 Status field**. The 5 expected status options: `Todo`, `In Design`, `In Progress`, `In QA`, `Done`.
+- **`/sillok-epic` renamed to `/sillok-story`.** In-repo composite issues are now `Story` type, not `Epic`. `Epic` type is reserved for cross-repo PRD parents.
+- **New required prerequisites:** an organization with Issue Types configured (admin sets up Epic + Story; Feature/Task/Bug auto-exist), and a Projects v2 board with the 5 Status options + auto-add and item-closed-to-Done workflows enabled.
+
+### Added
+- **Cross-repo PRD parent linking.** `--parent owner/repo#N` and full URL forms accepted by `/sillok-start`. Sub-issue API works across same-org repos. Open PRD epics auto-suggested when `prdRepo` config is set.
+- **Auto-assignee.** `/sillok-start` and `/sillok-story` assign the gh-authenticated user (`@me`).
+- **Linked branches (Development panel).** `/sillok-start` and `/sillok-story` push the new branch and register `createLinkedBranch` so the issue's Development panel populates from creation.
+- **Nature label class.** `improvement`, `refactor`, `infra`, `docs`, `security`, `performance` — orthogonal to Issue Type.
+- **Migration script.** `scripts/migrate-v1-to-v2.sh` for bulk re-labeling existing issues.
+
+### Internal
+- New helper libraries: `scripts/lib/issue-types.sh`, `scripts/lib/project.sh`, `scripts/lib/dev-link.sh`.
+- Major rewrite of `skills/gh-issue-management/SKILL.md` and `templates/rules/gh-issue-conventions.md`.
+
+### Migration (5-step procedure)
+1. Update plugin: `/plugin update sillok`.
+2. Org owner adds missing Issue Types (Epic, Story) via web UI or API.
+3. Configure Projects v2 board with the 5 Status options + workflows.
+4. Re-run `/sillok-init` in each project. Updates labels, verifies prerequisites.
+5. Optionally bulk-migrate existing issues: `bash scripts/migrate-v1-to-v2.sh <repo> --apply`.
+
 ## [1.2.3] - 2026-05-20
 
 ### Fixed
