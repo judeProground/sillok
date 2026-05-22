@@ -38,8 +38,8 @@ TYPE_MAP_VALUES=("Feature" "Bug" "Feature" "Task" "Story")
 #   - `epic` was the v1 in-repo composite; in v2 it becomes Story
 
 # Mapping: v1 stage label → v2 status key (used by sillok_project_status_set)
-STAGE_MAP_KEYS=("todo" "designed" "in-progress" "in-review")
-STAGE_MAP_VALUES=("todo" "design" "progress" "review")
+STAGE_MAP_KEYS=("backlog" "todo" "designed" "in-progress" "in-review")
+STAGE_MAP_VALUES=("todo" "todo" "design" "progress" "review")
 
 # Helper: look up value by key in parallel arrays
 lookup() {
