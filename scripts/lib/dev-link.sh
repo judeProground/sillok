@@ -38,6 +38,15 @@ sillok_repo_node_id() {
 # Idempotent on re-call with same args (GitHub returns the existing link).
 sillok_link_branch() {
   local issue_id="$1"
+
+  local org_mode
+  org_mode=$(sillok_config orgMode)
+  if [[ "$org_mode" != "true" ]]; then
+    # User repo: createLinkedBranch not available. Skip.
+    # PRs will still auto-link via Closes #N.
+    return 0
+  fi
+
   local branch_name="$2"
   local oid="$3"
   local repo_id="${4:-}"
