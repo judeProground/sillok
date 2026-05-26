@@ -45,7 +45,7 @@ fi
 prefix_regex=$(sillok_branch_prefix_regex)
 if [[ -n "$prefix_regex" && "$branch" =~ ^${prefix_regex}([0-9]+)-(.+)$ ]]; then
   # Walk BASH_REMATCH from index 1: find first numeric (issue#), next capture (slug),
-  # and also remember the matched type token (if any) so we can detect epic-finalize mode.
+  # and also remember the matched type token (if any) so we can detect story-finalize mode.
   n=""
   slug=""
   matched_type=""
@@ -63,49 +63,32 @@ if [[ -n "$prefix_regex" && "$branch" =~ ^${prefix_regex}([0-9]+)-(.+)$ ]]; then
     fi
   done
 
-  if [[ "$matched_type" == "epic" ]]; then
-    # Epic-finalize mode: the current branch IS the integration branch.
+  if [[ "$matched_type" == "story" ]]; then
+    # Story-finalize mode: branch is the integration branch story/issue-N-slug.
+    # PR target = configured baseBranch; merge strategy = merge (not squash) to
+    # preserve sub-feature commits.
     echo
-    echo "### Mode: epic-finalize"
-    echo "- Epic issue #: $n"
-    echo "- Slug: \`$slug\`"
+    echo "### Mode: story-finalize"
+    echo "- Story issue: #$n"
+    echo "- Branch (integration): \`$branch\`"
+    echo "- Merge strategy: merge (preserves sub-feature commits)"
+    echo "- PR base: $(sillok_config baseBranch)"
 
-    if issue_json=$(gh issue view "$n" --repo "$REPO" --json title,labels,body 2>/dev/null); then
-      title=$(echo "$issue_json" | jq -r '.title')
-      labels=$(echo "$issue_json" | jq -r '[.labels[].name] | join(", ")')
-      echo "- Title: $title"
-      echo "- Labels: $labels"
-    else
-      echo "- ⚠️  \`gh issue view #$n\` failed (auth?) — LLM must fetch manually"
-    fi
+    # List sub-feature issues that have closed PRs (for the PR body)
+    sub_issues=$(gh api graphql -f query="{
+      repository(owner: \"${REPO%%/*}\", name: \"${REPO##*/}\") {
+        issue(number: $n) {
+          subIssues(first: 50) {
+            nodes { number title state }
+          }
+        }
+      }
+    }" --jq '.data.repository.issue.subIssues.nodes[]? | "- #\(.number) \(.title) [\(.state)]"' 2>/dev/null || echo "")
 
-    # Open + closed sub-issues of this epic
-    echo
-    echo "### Open sub-issues to close with this PR"
-    subs_json=$(gh issue list --repo "$REPO" --state open --search "in:body Parent: #$n" --json number,title 2>/dev/null || echo "[]")
-    sub_count=$(echo "$subs_json" | jq 'length')
-    if [[ "$sub_count" == "0" ]]; then
-      closed_count=$(gh issue list --repo "$REPO" --state closed --search "in:body Parent: #$n" --json number --jq 'length' 2>/dev/null || echo "0")
-      if [[ "$closed_count" == "0" ]]; then
-        echo "- ⚠️  Empty epic: no sub-features ever created. ABORT or close the epic issue manually."
-      else
-        echo "- (none open — $closed_count sub-feature(s) already closed)"
-      fi
-    else
-      echo "$subs_json" | jq -r '.[] | "- #\(.number) \(.title)"'
-    fi
-
-    # Existing PR for the epic branch
-    echo
-    echo "### Existing PR"
-    pr_json=$(gh pr list --repo "$REPO" --head "$branch" --json number,url,state 2>/dev/null || echo "[]")
-    pr_count=$(echo "$pr_json" | jq 'length')
-    if [[ "$pr_count" == "0" ]]; then
-      echo "- None — will create epic-finalization PR (base=$BASE_BRANCH ... wait, end command resolves this; precompute only reports)."
-    else
-      pr_url=$(echo "$pr_json" | jq -r '.[0].url')
-      pr_state=$(echo "$pr_json" | jq -r '.[0].state')
-      echo "- Found: $pr_url (state: $pr_state) — prompt user: update body/labels only, or skip."
+    if [[ -n "$sub_issues" ]]; then
+      echo
+      echo "### Sub-issues"
+      printf '%s\n' "$sub_issues"
     fi
 
   else
@@ -121,26 +104,21 @@ if [[ -n "$prefix_regex" && "$branch" =~ ^${prefix_regex}([0-9]+)-(.+)$ ]]; then
       echo "- Title: $title"
       echo "- Labels: $labels"
 
-      stage=$(echo "$issue_json" \
-        | jq -r '[.labels[].name] | map(select(. == "backlog" or . == "todo" or . == "designed" or . == "in-progress" or . == "in-review")) | .[0] // "none"')
-      echo "- Stage: \`$stage\`"
-
-      case "$stage" in
-        in-progress) ;;
-        in-review)
-          echo "- ⚠️  Stage \`in-review\` — PR likely already exists. Will detect below."
-          ;;
-        *)
-          echo "- ⚠️  Stage \`$stage\` — expected \`in-progress\`. ABORT or fix label."
-          ;;
-      esac
-
-      # Parent reference (sub-issue case)
-      parent_m=$(echo "$issue_json" | jq -r '.body' | (grep -oE '^Parent: #[0-9]+' || true) | head -1 | sed 's/Parent: #//')
-      if [[ -n "$parent_m" ]]; then
-        echo "- Parent: #$parent_m (sub-issue)"
-      else
+      # Parent reference — supports both same-repo (`Parent: #N`) and
+      # cross-repo (`Parent: owner/repo#N`) forms.
+      parent_line=$(echo "$issue_json" | jq -r '.body' | grep -m1 -E '^Parent:' || true)
+      parent_m=""
+      if [[ "$parent_line" =~ Parent:[[:space:]]+([^/]+/[^#]+)#([0-9]+) ]]; then
+        parent_m="${BASH_REMATCH[1]}#${BASH_REMATCH[2]}"
+      elif [[ "$parent_line" =~ Parent:[[:space:]]+#([0-9]+) ]]; then
+        parent_m="${BASH_REMATCH[1]}"
+      fi
+      if [[ -z "$parent_m" ]]; then
         echo "- Parent: none (standalone)"
+      elif [[ "$parent_m" == *"#"* ]]; then
+        echo "- Parent: $parent_m (cross-repo PRD)"
+      else
+        echo "- Parent: #$parent_m (sub-issue)"
       fi
     else
       echo "- ⚠️  \`gh issue view #$n\` failed (auth?) — LLM must fetch manually"
@@ -199,6 +177,20 @@ if [[ -z "$dirty" ]]; then
 else
   echo "- Dirty (lines below). Decide commit / stash / abort with user before pushing:"
   echo "$dirty" | sed 's/^/    /'
+fi
+
+echo
+echo "### Project status"
+source "${SCRIPT_DIR}/lib/project.sh" 2>/dev/null || true
+if command -v sillok_project_item_for_issue >/dev/null 2>&1; then
+  if [[ -n "${n:-}" ]]; then
+    item_id=$(sillok_project_item_for_issue "https://github.com/$REPO/issues/$n")
+    if [[ -n "$item_id" ]]; then
+      status=$(sillok_project_status_get "$item_id" || echo "")
+      echo "- Item ID: $item_id"
+      echo "- Status: ${status:-unknown}"
+    fi
+  fi
 fi
 
 exit 0

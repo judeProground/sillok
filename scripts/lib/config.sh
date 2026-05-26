@@ -90,9 +90,16 @@ sillok_branch_prefix_regex() {
 
   # Build the {type} alternation from labels.types.
   local types_alt
-  types_alt=$(sillok_config_array labels.types | tr '\n' '|' | sed 's/|$//')
+  # v2: types live in types.list (Title-cased Issue Type names).
+  # Branch prefixes use lowercase forms (story, feature, bug, task).
+  # We lowercase the list here. Filter out "Epic" — PRDs live in the PRD
+  # repo and don't have code branches, so an epic/* branch shouldn't match.
+  types_alt=$(sillok_config_array types.list \
+    | grep -v '^Epic$' \
+    | tr '[:upper:]' '[:lower:]' \
+    | tr '\n' '|' | sed 's/|$//')
   if [[ -z "$types_alt" ]]; then
-    types_alt="feature|bug|improvement|infra|epic"
+    types_alt="feature|story|bug|task"
   fi
 
   local result="$escaped"

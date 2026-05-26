@@ -1,5 +1,5 @@
 ---
-description: Brainstorm and write the spec for the current issue. Saves spec to <SPEC_DIR>/, pastes the full spec content into the issue body, flips stage label todo → designed AFTER user reviews and confirms the spec content.
+description: Brainstorm and write the spec for the current issue. Saves spec to <SPEC_DIR>/, pastes the full spec content into the issue body, sets project status to In Design AFTER user reviews and confirms the spec content.
 ---
 
 You are running the `/sillok-design` slash command for the sillok (`${REPO}`).
@@ -28,13 +28,13 @@ Read the markdown block. Show it back to the user as the current state summary.
 
 ## Step 2: Pre-condition
 
-Stage was already extracted by precompute (step 1). Apply:
+Project status was extracted by precompute (step 1, `### Project status` section). Apply:
 
-- `todo` → proceed.
-- `in-progress` (continuing prior partial design work) → unusual but allowed; confirm intent with user.
-- `designed` / `in-review` → ABORT with "Spec already exists. Run `/sillok-execute` instead, or change the stage label manually if you actually want to redesign."
+- `Todo` → proceed.
+- `In Design` (continuing prior partial design work) → unusual but allowed; confirm intent with user.
+- `In Progress` / `In QA` / `Done` → ABORT with "Issue is past design stage. Run `/sillok-execute` if In Progress, or fix the project status manually."
 
-If precompute reported a stage warning, surface it to the user before proceeding.
+Spec existence was verified in step 1 — abort already handled there.
 
 ## Step 3: Spec path + pre-existing check
 
@@ -49,10 +49,17 @@ Do NOT pre-create labels (`gh label create designed` etc.) — the standard labe
 
 ## Step 4: Invoke brainstorming
 
+If precompute reported a cross-repo parent (`parent_repo != REPO`), fetch the PRD body:
+
+```bash
+PRD_BODY=$(gh issue view "$parent_n" --repo "$parent_repo" --json body --jq '.body')
+```
+
 Use the `superpowers:brainstorming` skill. Seed it with:
 
 - Issue title: `<title>`
 - Issue body: full body fetched in step 1
+- **Cross-repo PRD body (if any):** `$PRD_BODY`
 - Current state: stage, parent, slug
 
 The brainstorming skill drives the discussion. Follow its instructions.
@@ -71,15 +78,23 @@ Iterate:
 - Re-print path after each correction round.
 - Continue until user explicitly confirms.
 
-The label flip in step 7 ONLY happens after explicit confirmation. Confirmation is required because the spec may still be wrong; the flip marks "I've seen and accepted this".
+The project status update in step 7 ONLY happens after explicit confirmation. Confirmation is required because the spec may still be wrong; the status change marks "I've seen and accepted this".
 
-## Step 7: Flip stage label
+## Step 7: Set project status to In Design
 
 After explicit user confirmation in step 6:
 
-`gh issue edit <N> --remove-label todo --add-label designed`
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/project.sh"
+ITEM_ID=$(sillok_project_item_for_issue "https://github.com/$REPO/issues/$N")
+if [[ -z "$ITEM_ID" ]]; then
+  # Edge case: auto-add didn't fire and start didn't add. Recover.
+  ITEM_ID=$(sillok_project_item_add "https://github.com/$REPO/issues/$N")
+fi
+sillok_project_status_set "$ITEM_ID" design
+```
 
-(If the issue was at `in-progress` for a continuation, instead remove `in-progress` and re-add `designed` — i.e., move BACK to designed since spec is fresh.)
+The old stage label flip (`todo → designed`) is removed — stage now lives in the project's Status field.
 
 ## Step 8: Update issue body — paste spec inline
 
@@ -120,6 +135,6 @@ Drift policy: if the spec file and issue body diverge later, the file wins — r
 Print:
 
 - Spec path: `<SPEC_DIR>/<date>-<slug>.md`
-- Issue URL with new label
+- Issue URL with status `In Design`
 - Issue body updated with full spec content inlined under `## Design`
 - Handoff: "Next: `/sillok-execute` to write the plan and ship the work."

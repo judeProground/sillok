@@ -1,5 +1,5 @@
 ---
-description: Bootstrap a new feature — create GH issue (PRD optional), branch, worktree with env files copied. Optional --parent N flag links as sub-issue of an existing epic. Auto-suggests open epics if no parent specified.
+description: Bootstrap a new feature — create GH issue with Issue Type + self-assign + project status Todo + linked branch. Optional --parent N (same-repo) or owner/repo#N (cross-repo PRD epic).
 ---
 
 You are running the `/sillok-start` slash command for the the configured GitHub repository.
@@ -9,7 +9,12 @@ You are running the `/sillok-start` slash command for the the configured GitHub 
 Extract from the user's input:
 
 - Optional positional `[prd-path]` — a markdown file path. Most starts have no PRD; that's expected.
-- Optional flag `--parent N` — issue number to link as parent (must be an `epic`).
+- Optional flag `--parent <value>` — issue reference. Three forms accepted:
+  - `--parent 42` — same-repo issue #42
+  - `--parent myorg/prd#42` — cross-repo issue
+  - `--parent https://github.com/myorg/prd/issues/42` — URL form, parsed to `myorg/prd#42`
+
+Parse `--parent` into `parent_owner`, `parent_repo`, `parent_n`. If only a number is given, `parent_owner` = current repo owner and `parent_repo` = current repo name.
 
 ## Step 2: State derivation
 
@@ -70,7 +75,6 @@ Print:
 
 - Title: `<title>`
 - Type label: `<type>` (default `feature`)
-- Stage label: `todo`
 - Priority: `p3` (default)
 - Parent: `#<M>` if any, else "standalone"
 - Milestone: `<computed>` if captured, else "none"
@@ -79,25 +83,58 @@ Ask: "Create issue with these settings? (yes / edit). On `edit`, prompt for whic
 
 ## Step 7: Create the issue
 
-Run:
+Resolve type label (`<type>`) to Issue Type name via config:
+- `feature` → use `types.defaults.feature` (default `Feature`)
+- `bug` → use `Bug` (literal)
+- `task` → use `Task` (literal)
 
-`gh issue create --title "<title>" --label <type> --label todo --label p3 --milestone "<milestone>" --body "<body>"` (omit `--milestone` if no milestone captured)
+Read orgMode from config (`sillok_config orgMode`). Branch the REST call:
 
-Capture the new issue number `<N>` from the URL output (e.g., `https://github.com/${REPO}/issues/123` → `<N>=123`).
+**Org mode (`orgMode=true`):**
+
+```bash
+issue_url=$(gh api -X POST \
+  -H "X-GitHub-Api-Version: 2026-03-10" \
+  "/repos/$REPO/issues" \
+  -f title="<title>" \
+  -f body="<body>" \
+  -f type="<Issue-Type-name>" \
+  -f "assignees[]=$(gh api user --jq .login)" \
+  -f "labels[]=<priority>" \
+  -f "labels[]=<area-if-any>" \
+  --jq '.html_url')
+```
+
+**User mode (`orgMode=false`):**
+
+```bash
+issue_url=$(gh api -X POST \
+  -H "X-GitHub-Api-Version: 2026-03-10" \
+  "/repos/$REPO/issues" \
+  -f title="<title>" \
+  -f body="<body>" \
+  -f "assignees[]=$(gh api user --jq .login)" \
+  -f "labels[]=<priority>" \
+  -f "labels[]=<type-lowercased>" \
+  -f "labels[]=<area-if-any>" \
+  --jq '.html_url')
+```
+
+(Difference: org mode has `-f type=X`, user mode has `-f labels[]=x` instead.)
+
+Capture `<N>` by parsing the URL's last segment.
 
 ## Step 8: Link as sub-issue if parent
 
-If a parent was selected in step 4 (or via `--parent`), use the GraphQL `addSubIssue` mutation per the `sillok:gh-issue-management` skill's Sub-issue linking section:
+If a parent was selected:
 
-`PARENT_ID=$(gh api graphql -f query='query { repository(owner:"${OWNER}", name:"${NAME}") { issue(number:<M>) { id } } }' --jq '.data.repository.issue.id')`
-`CHILD_ID=$(gh api graphql -f query='query { repository(owner:"${OWNER}", name:"${NAME}") { issue(number:<N>) { id } } }' --jq '.data.repository.issue.id')`
-`gh api graphql -f query="mutation { addSubIssue(input: { issueId: \"$PARENT_ID\", subIssueId: \"$CHILD_ID\" }) { issue { number } subIssue { number } } }"`
+```bash
+PARENT_ID=$(gh api graphql -f query="{ repository(owner: \"$parent_owner\", name: \"$parent_repo\") { issue(number: $parent_n) { id } } }" --jq '.data.repository.issue.id')
+CHILD_ID=$(gh api graphql -f query="{ repository(owner: \"${REPO%%/*}\", name: \"${REPO##*/}\") { issue(number: $N) { id } } }" --jq '.data.repository.issue.id')
+gh api graphql -f query="mutation { addSubIssue(input: { issueId: \"$PARENT_ID\", subIssueId: \"$CHILD_ID\" }) { issue { number } } }" >/dev/null
+```
 
-Verify the parent has the `epic` label:
-
-`gh issue view <M> --json labels --jq '.labels[].name'`
-
-If `epic` is missing, surface: "Parent #<M> is missing the `epic` label. Per Type vs Structure rules in `gh-issue-conventions.md`, parents must be `epic`. Add it? (recommended; y/N)". On yes, `gh issue edit <M> --add-label epic`.
+**Skip the epic-label verification step** when `parent_owner/parent_repo` differs from current repo — cross-repo parent labels are user-controlled and sillok cannot enforce them.
 
 ## Step 9: Compute slug and branch
 
@@ -124,19 +161,23 @@ Print the branch for user confirmation: "Branch will be `<branch>`. OK? (yes / c
 
 ## Step 9b: Determine base branch (parent integration awareness)
 
-If a parent was selected in step 4, check whether the parent epic has an integration branch and cut from there instead of the configured base branch.
+If parent is same-repo, check for integration branch as before. If cross-repo, always fall back to configured `baseBranch` (cross-repo PRD epics don't have integration branches).
 
 ```bash
-if [[ -n "<parent-N>" ]]; then
-  parent_body=$(gh issue view "<parent-N>" --repo "$REPO" --json body --jq '.body')
-  integration_branch=$(echo "$parent_body" \
-    | awk '/^## Integration branch/{flag=1; next} /^## /{flag=0} flag && /^`/{gsub("`",""); print; exit}')
-  if [[ -n "$integration_branch" ]]; then
-    BASE_BRANCH="$integration_branch"
-    echo "Cutting from parent's integration branch: $integration_branch"
+if [[ -n "$parent_n" ]]; then
+  if [[ "$parent_owner/$parent_repo" == "$REPO" ]]; then
+    # Same repo: check for integration branch in parent body
+    parent_body=$(gh issue view "$parent_n" --repo "$REPO" --json body --jq '.body')
+    integration_branch=$(echo "$parent_body" \
+      | awk '/^## Integration branch/{flag=1; next} /^## /{flag=0} flag && /^`/{gsub("`",""); print; exit}')
+    if [[ -n "$integration_branch" ]]; then
+      BASE_BRANCH="$integration_branch"
+    else
+      BASE_BRANCH=$(sillok_config baseBranch)
+    fi
   else
+    # Cross-repo: no integration branch concept
     BASE_BRANCH=$(sillok_config baseBranch)
-    echo "Parent #<parent-N> has no integration branch — falling back to $BASE_BRANCH"
   fi
 else
   BASE_BRANCH=$(sillok_config baseBranch)
@@ -161,11 +202,41 @@ The `-b <branch> origin/main` form inside the script creates a new branch named 
 
 Note: `git worktree` does NOT auto-symlink dependency directories (`node_modules`, `vendor`, etc.) — the `install` command run inside the script gets a fresh install for the new worktree.
 
+## Step 10b: Push branch + link to issue (Development panel)
+
+Push the new branch so GitHub knows about it, then register the linked-branch relationship.
+
+```bash
+worktree_path=".worktrees/<slug>"
+(cd "$worktree_path" && git push -u origin "<branch>")
+
+# Resolve SHA of new branch tip
+BRANCH_SHA=$(cd "$worktree_path" && git rev-parse HEAD)
+
+# Look up GraphQL node IDs and create the linked branch
+source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dev-link.sh"
+ISSUE_NODE_ID=$(sillok_issue_node_id "$REPO" "$N")
+sillok_link_branch "$ISSUE_NODE_ID" "<branch>" "$BRANCH_SHA"
+```
+
+## Step 10c: Add to project + set status Todo
+
+Idempotent — works whether the auto-add workflow has already fired or not.
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/project.sh"
+ITEM_ID=$(sillok_project_item_add "$issue_url")
+sillok_project_status_set "$ITEM_ID" todo
+```
+
 ## Step 11: Output
 
 Print:
 
-- Issue URL: `https://github.com/${REPO}/issues/<N>`
+- Issue URL: `<issue_url>`
 - Branch: `<branch>`
 - Worktree path: `.worktrees/<slug>`
+- Project item: `<ITEM_ID>`
+- Status: `Todo`
+- Linked branch: ✓
 - Handoff: "Next: `cd .worktrees/<slug>` then run `/sillok-design` to write the spec."

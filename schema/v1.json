@@ -3,7 +3,7 @@
   "$id": "https://raw.githubusercontent.com/judeProground/sillok/main/schema/v1.json",
   "title": "Sillok workflow configuration",
   "type": "object",
-  "required": ["version", "repo", "baseBranch", "branchPrefix"],
+  "required": ["version", "repo", "baseBranch", "branchPrefix", "project"],
   "properties": {
     "$schema": { "type": "string" },
     "version": { "const": 1 },
@@ -20,6 +20,56 @@
       "type": "string",
       "description": "Prefix prepended to feature branches before the slug. Supports {type} (issue type label) and {user} (git user.name, alphanumeric lowercase) placeholders. Default: '{type}/issue-' produces 'feature/issue-42-add-x', 'epic/issue-42-add-x', etc. A literal string with no placeholders produces the same prefix for every branch.",
       "examples": ["{type}/issue-", "{user}/{type}-", "feat/"]
+    },
+    "prdRepo": {
+      "type": "string",
+      "pattern": "^[^/]+/[^/]+$",
+      "description": "Optional cross-repo PRD repository slug ('<owner>/<name>'). When set, /sillok-start auto-suggests open epics from this repo and accepts cross-repo parent linking."
+    },
+    "orgMode": {
+      "type": "boolean",
+      "default": false,
+      "description": "Auto-detected by /sillok-init. true = org repo (Issue Types + linked branches). false = user repo (label fallback)."
+    },
+    "project": {
+      "type": "object",
+      "required": ["owner", "number", "statusField", "statuses"],
+      "properties": {
+        "owner": { "type": "string", "description": "Org owning the Projects v2 board." },
+        "number": { "type": "integer", "minimum": 1, "description": "Project number." },
+        "statusField": { "type": "string", "default": "Status", "description": "Status field name on the project." },
+        "statuses": {
+          "type": "object",
+          "required": ["todo", "design", "progress", "review", "done"],
+          "properties": {
+            "todo":     { "type": "string", "default": "Todo" },
+            "design":   { "type": "string", "default": "In Design" },
+            "progress": { "type": "string", "default": "In Progress" },
+            "review":   { "type": "string", "default": "In QA" },
+            "done":     { "type": "string", "default": "Done" }
+          }
+        }
+      },
+      "description": "Projects v2 integration. Required for v2 status transitions to function."
+    },
+    "types": {
+      "type": "object",
+      "properties": {
+        "list": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["Epic", "Story", "Feature", "Task", "Bug"]
+        },
+        "defaults": {
+          "type": "object",
+          "properties": {
+            "feature":   { "type": "string", "default": "Feature" },
+            "composite": { "type": "string", "default": "Story" },
+            "prd":       { "type": "string", "default": "Epic" }
+          }
+        }
+      },
+      "description": "Expected GitHub Issue Types. Sillok verifies these exist at /sillok-init."
     },
     "worktree": {
       "type": "object",
@@ -67,19 +117,21 @@
     "labels": {
       "type": "object",
       "properties": {
-        "types": { "type": "array", "items": { "type": "string" } },
-        "stages": { "type": "array", "items": { "type": "string" } },
         "priorities": { "type": "array", "items": { "type": "string" } },
         "areas": {
           "type": "array",
           "items": { "type": "string", "pattern": "^[a-z0-9-]+$" },
-          "description": "Optional vertical-slice labels. Each entry produces an 'area:<name>' GitHub label. Detected from project structure during /sillok-init."
+          "description": "Optional vertical-slice labels. Detected from project structure during /sillok-init."
+        },
+        "natures": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "default": ["improvement", "refactor", "infra", "docs", "security", "performance"],
+          "description": "Cross-cutting nature labels (orthogonal to Issue Type)."
         },
         "defaults": {
           "type": "object",
           "properties": {
-            "type": { "type": "string" },
-            "stage": { "type": "string" },
             "priority": { "type": "string" }
           }
         }

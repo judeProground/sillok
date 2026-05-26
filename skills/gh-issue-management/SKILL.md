@@ -1,6 +1,6 @@
 ---
 name: gh-issue-management
-description: Use when creating, updating, closing, triaging, or linking GitHub issues in your project. Covers issue title and body conventions, label taxonomy (type, stage, priority), milestone naming, sub-issue parent-child linking via GraphQL, and the eight management flows (new feature, pick up existing, quick fix, new project, search and dedup, sprint planning, triage backlog, mid-session discovery).
+description: Use when creating, updating, closing, triaging, or linking GitHub issues in your project. Covers issue title and body conventions, GitHub Issue Types (Epic/Story/Feature/Task/Bug), Projects v2 Status field for stage, priority + nature labels, milestone naming, cross-repo sub-issue parent-child linking via GraphQL, linked-branch registration, and the eight management flows (new feature, pick up existing, quick fix, new project, search and dedup, sprint planning, triage backlog, mid-session discovery).
 ---
 
 # Sillok GH Issue Management
@@ -42,39 +42,60 @@ Verb-form imperative. Examples:
 
 The body shape differs by issue type. Full templates with copy-pasteable skeletons live in `.claude/sillok/rules/gh-issue-conventions.md` under "Issue Body". Quick reference:
 
-**Feature / improvement / infra** — Parent (if sub) → Summary → PRD link → Design (inline spec) → Plan link → PR link → Done note. The Design / Plan link / PR link / Done note sections are filled progressively by `/sillok-{design,execute,end}`.
+**Feature / Task** (optionally with `improvement` / `infra` / `refactor` nature labels) — Parent (if sub) → Summary → PRD link → Design (inline spec) → Plan link → PR link → Done note. The Design / Plan link / PR link / Done note sections are filled progressively by `/sillok-{design,execute,end}`.
 
-**Epic** — 1-line summary → Architecture (optional) → Sub-issues checkbox list → Context → Non-goals. NO Design / Plan / PR sections (those live on sub-issues). `#69` is the canonical example.
+**Story** — 1-line summary → Integration branch → Architecture (optional) → Sub-issues checkbox list → Context → Non-goals. NO Design / Plan / PR sections (those live on sub-issues).
 
-**Bug** — Parent (if sub) → Summary → Repro → Impact → Suspected cause (optional) → PR link → Done note. Bugs skip Design entirely. Keep tight (5–10 lines).
+**Epic** — Lives in the PRD repo. Cross-repo parent for a multi-repo initiative; child issues in code repos link via cross-repo sub-issue API.
+
+**Bug** (any nature labels are optional) — Parent (if sub) → Summary → Repro → Impact → Suspected cause (optional) → PR link → Done note. Bugs skip Design entirely. Keep tight (5–10 lines).
 
 Design specs are **pasted inline** as canonical text — never just linked. File at `docs/superpowers/specs/<date>-<slug>.md` is the authoring artifact; body wins on drift; re-paste via `/sillok-design` step 8. Plans stay linked (not inlined — too long).
 
-### Label taxonomy
+### Type (GitHub Issue Type — applied via API, not as a label)
 
-**Type** (apply ONE):
+Each issue carries exactly one Issue Type from the org-level Issue Types catalogue. Sillok ships with five:
 
-| Label         | When                                            |
-| ------------- | ----------------------------------------------- |
-| `feature`     | New user-facing functionality                   |
-| `bug`         | Broken behavior                                 |
-| `improvement` | Enhances existing functionality                 |
-| `infra`       | Tooling, CI, config, refactor — not user-facing |
-| `epic`        | Parent tracking issue with ≥3 sub-issues        |
+| Type        | When                                                       |
+| ----------- | ---------------------------------------------------------- |
+| `Epic`      | Cross-repo PRD parent (lives in the PRD repo)              |
+| `Story`     | In-repo composite (has integration branch + sub-issues)    |
+| `Feature`   | New user-facing functionality (single PR)                  |
+| `Task`      | Generic work unit, no user-facing change                   |
+| `Bug`       | Broken behavior                                            |
 
-**Stage** (transitions over lifecycle; apply ONE):
+Types are set during issue creation via REST: `POST /repos/{owner}/{repo}/issues -f type=<Type>` with header `X-GitHub-Api-Version: 2026-03-10`. Updates via `PATCH /repos/{owner}/{repo}/issues/{N} -f type=<Type>`. The `improvement` / `infra` / `refactor` categories from v1 are no longer Types — they're now Nature labels (see below).
 
-| Label         | When applied                                |
-| ------------- | ------------------------------------------- |
-| `backlog`     | Raw idea, not yet prioritized               |
-| `todo`        | Prioritized, ready to start, not yet begun  |
-| `designed`    | Spec exists at `docs/superpowers/specs/...` |
-| `in-progress` | Plan exists, work started                   |
-| `in-review`   | PR open                                     |
+### Stage (Projects v2 Status field — not a label)
 
-`done` is NOT a label — closed state implies done.
+Lifecycle stage lives in the project's Status single-select field, not on the issue as a label. The five canonical statuses:
 
-**Priority** (apply ONE; default `p3`): `p1` urgent | `p2` high | `p3` normal | `p4` low.
+| Status         | When applied                                          | Set by                           |
+| -------------- | ----------------------------------------------------- | -------------------------------- |
+| `Todo`         | Issue created, ready to start                         | `/sillok-start` + auto-add WF    |
+| `In Design`    | Spec exists at `docs/superpowers/specs/...`           | `/sillok-design`                 |
+| `In Progress`  | Plan exists, work started                             | `/sillok-execute`                |
+| `In QA`        | PR open, review/QA underway                           | `/sillok-end`                    |
+| `Done`         | Issue closed (PR merged or manually closed)           | Project workflow ("item closed") |
+
+Sillok writes status via GraphQL `updateProjectV2ItemFieldValue`. The exact option names are configurable per project in `workflow.config.json` under `project.statuses`.
+
+**Priority** (one label per issue; default `p3`): `p1` urgent | `p2` high | `p3` normal | `p4` low.
+
+### Nature (optional cross-cutting labels)
+
+Nature labels describe a property orthogonal to the Issue Type. Multiple natures can attach to one issue — a nature is never required, but at most a handful of natures should land on any single issue:
+
+| Label          | Meaning                                            |
+| -------------- | -------------------------------------------------- |
+| `improvement`  | Enhances existing functionality                    |
+| `refactor`     | Code restructuring with no behavioral change       |
+| `infra`        | Tooling, CI, build config                          |
+| `docs`         | Documentation only                                 |
+| `security`     | Security-relevant change                           |
+| `performance`  | Performance-relevant change                        |
+
+These are configured under `labels.natures` in `workflow.config.json`. A `Feature` typed issue can also carry the `refactor` label, etc.
 
 ### Milestone
 
@@ -88,9 +109,11 @@ Two-week sprints. Format `YYYY-MM-Wn` where `n = ceil(sprint_start_day / 7)`.
 
 Sprints start on Monday. Issues without a milestone are valid.
 
-### Sub-issue linking
+### Sub-issue linking (including cross-repo)
 
-Use GraphQL `addSubIssue`. The `gh` CLI has no native command for this:
+Use GraphQL `addSubIssue`. The `gh` CLI has no native command for this.
+
+**Same-repo example:**
 
 ```bash
 PARENT_ID=$(gh api graphql -f query='query { repository(owner:"${OWNER}", name:"${NAME}") { issue(number:<P>) { id } } }' --jq '.data.repository.issue.id')
@@ -98,26 +121,50 @@ CHILD_ID=$(gh api graphql -f query='query { repository(owner:"${OWNER}", name:"$
 gh api graphql -f query="mutation { addSubIssue(input: { issueId: \"$PARENT_ID\", subIssueId: \"$CHILD_ID\" }) { issue { number } subIssue { number } } }"
 ```
 
-Do NOT also add `- [ ] #N` task-list syntax to the parent body — GitHub's native sub-issue panel renders from the GraphQL relationship. Manual checklists become duplicate state and drift.
+**Cross-repo example** (parent in PRD repo, child in code repo — same org):
+
+```bash
+PARENT_ID=$(gh api graphql -f query='query { repository(owner:"myorg", name:"prd") { issue(number:42) { id } } }' --jq '.data.repository.issue.id')
+CHILD_ID=$(gh api graphql -f query='query { repository(owner:"myorg", name:"frontend") { issue(number:101) { id } } }' --jq '.data.repository.issue.id')
+gh api graphql -f query="mutation { addSubIssue(input: { issueId: \"$PARENT_ID\", subIssueId: \"$CHILD_ID\" }) { issue { number } } }"
+```
+
+Same-org cross-repo sub-issue linking is natively supported. Do NOT also add `- [ ] #N` task-list syntax — GitHub renders the sub-issue panel from the GraphQL relationship.
+
+### Linked branches (Development panel)
+
+GitHub's Development panel on an issue auto-links PRs via `Closes #N` in PR body. **Branches must be explicitly linked** via the `createLinkedBranch` GraphQL mutation; sillok handles this in `/sillok-start` and `/sillok-story` via `scripts/lib/dev-link.sh`. The helper is idempotent — re-linking the same branch is safe.
+
+```bash
+# Example: link a branch to an issue
+gh api graphql -f query='mutation {
+  createLinkedBranch(input: {
+    issueId: "<issue-node-id>",
+    name: "feature/issue-42-add-cart",
+    oid: "<commit-sha>"
+  }) { linkedBranch { id ref { name } } }
+}'
+```
 
 ### Type vs Structure relationship
 
-Type labels and parent/sub-issue structure are partially overlapping. The rules:
+`Epic` and `Story` are the only types that may have sub-issues:
 
-1. **`epic` is the only type allowed as a parent.** Any issue with sub-issues must be labeled `epic`. An `epic` always has sub-issues — a childless `epic` is a labeling mistake. The `epic` body acts as tracking/coordination; no code changes attach to an `epic` directly.
-2. **Other types are work-unit labels.** A `feature` / `bug` / `improvement` / `infra` issue can be standalone (ships in 1 PR) OR a sub-issue (one piece of an epic). It cannot be a parent.
-3. **Sub-issue type composition is free.** An `epic` can have any mix of `feature` / `bug` / `improvement` / `infra` children. Each child's type describes that child's work, not the parent's.
-4. **Decomposition trigger = re-label as `epic`.** If you started a `feature` (or other type) and then realize it needs ≥2 sub-issues, change its type to `epic` and rewrite its body as a tracking summary. The original code work moves into the new sub-issues.
+1. **`Epic` parents live cross-repo.** PRDs are authored in a dedicated PRD repo and are the canonical Epic-typed issue. Child issues in code repos reference the Epic via the cross-repo sub-issue API.
+2. **`Story` parents live in-repo.** A `Story` is an in-repo composite with an `story/issue-<N>-<slug>` integration branch plus a worktree. Sub-features cut from and PR back to this integration branch.
+3. **`Feature` / `Task` / `Bug` are atomic work units.** Each ships in one PR. They can be standalone (no parent) OR a sub-issue of an `Epic` or `Story`.
+4. **Decomposition trigger.** Started as a `Feature` and realized it needs sub-issues? Run `/sillok-story` to promote: type flips to `Story`, branch renames to `story/issue-<N>-<slug>`, body is rewritten as a tracking summary.
 
 #### Heuristic at creation
 
-| Question                                             | Answer                                                        |
-| ---------------------------------------------------- | ------------------------------------------------------------- |
-| Does this ship in 1 PR?                              | Standalone — pick `feature` / `bug` / `improvement` / `infra` |
-| Does this need ≥2 PRs to ship?                       | Parent `epic` + sub-issues (each sub-issue ships its own PR)  |
-| Does this span multiple sessions / multiple authors? | Parent `epic` + sub-issues regardless of PR count             |
+| Question                                             | Answer                                                                  |
+| ---------------------------------------------------- | ----------------------------------------------------------------------- |
+| Does this ship in 1 PR?                              | Standalone — pick `Feature` / `Task` / `Bug` Type                       |
+| Does this need ≥2 PRs in one repo?                   | Parent `Story` + sub-issues (each sub-issue ships its own PR)           |
+| Does this span multiple repos?                       | Parent `Epic` in the PRD repo + cross-repo sub-issues in each code repo |
+| Does this span multiple sessions / multiple authors? | `Story` (single repo) or `Epic` (multi-repo)                            |
 
-`epic` does not carry a work-type label of its own — its sub-issues do.
+`Epic` and `Story` issues do not carry nature labels of their own — their sub-issues do.
 
 ### Branch naming
 
@@ -134,9 +181,9 @@ Each flow has the same shape: When → Steps → Done state.
 
 1. Read the PRD (use main agent's Read tool — no JSON intermediate).
 2. Draft issue title (verb-form, derived from PRD title; rewrite noun-phrases to verb-form).
-3. `gh issue create` with `feature` (or appropriate type), default to stage `todo` if starting work soon, else `backlog`. Default priority `p3`.
+3. Create issue via REST with `type=Feature` (or appropriate Type), optional nature labels, default priority `p3`. The project workflow sets Status to `Todo` on add.
 4. Link to current sprint milestone if active.
-5. Optional: create branch `${BRANCH_PREFIX}<N>-<slug>` and open a worktree.
+5. Optional: create branch `${BRANCH_PREFIX}<N>-<slug>` and open a worktree. `/sillok-start` registers the linked branch via `createLinkedBranch`.
 
 ### 2. Pick Up Existing
 
@@ -145,13 +192,13 @@ Each flow has the same shape: When → Steps → Done state.
 1. `gh issue view N` to read context (don't open in browser).
 2. Checkout `${BRANCH_PREFIX}<N>-<slug>` — create from `main` if it doesn't exist.
 3. Read spec/plan if linked in the issue body.
-4. Flip stage label: `gh issue edit N --remove-label todo --add-label in-progress` (or from `designed` if spec was already done).
+4. Move Status to `In Progress` via `sillok_project_status_set` (the project Status field — not a label).
 
 ### 3. Quick Fix
 
 **When:** Small bug, no design needed.
 
-1. `gh issue create` with `bug` type, `todo` stage, priority appropriate to severity (default `p2` for user-affecting bugs).
+1. Create issue with `type=Bug`, priority appropriate to severity (default `p2` for user-affecting bugs). Project workflow sets Status to `Todo` on add.
 2. Branch immediately, fix, commit with `(#N)` suffix per `.claude/rules/commit-conventions.md`.
 3. PR with `Closes #N` in body. Auto-closes on merge.
 
@@ -159,9 +206,9 @@ Each flow has the same shape: When → Steps → Done state.
 
 **When:** Effort spans ≥3 sub-issues.
 
-1. Create parent with `epic` type, `todo` stage, summary describing the overall effort.
-2. Create child issues — each with normal type (`feature`/`bug`/`improvement`/`infra`).
-3. For each child, link to parent using the GraphQL mutation in [Sub-issue linking](#sub-issue-linking).
+1. Create parent: `Story` if all sub-issues live in one repo (use `/sillok-story`); `Epic` in the PRD repo if the effort crosses repos.
+2. Create child issues — each with `Feature` / `Task` / `Bug` Type, plus any relevant nature labels.
+3. For each child, link to parent using the GraphQL mutation in [Sub-issue linking](#sub-issue-linking-including-cross-repo). Cross-repo links are natively supported within the same org.
 4. Do NOT add task-list syntax in the parent body. The GitHub UI renders the sub-issue tree natively from the GraphQL relationship.
 
 ### 5. Search & Dedup
@@ -177,7 +224,7 @@ Each flow has the same shape: When → Steps → Done state.
 
 **When:** Starting a new sprint or adjusting mid-sprint.
 
-1. List candidates: `gh issue list --label todo --state open` and `gh issue list --label backlog --state open`.
+1. List candidates by querying the project's Status field (`Todo` items + un-prioritized inbox). The `gh project item-list` command surfaces status; pure-label queries no longer work in v2.
 2. Prioritize via priority labels (`p1`/`p2`/`p3`/`p4`).
 3. Pull selected into the sprint: `gh issue edit N --milestone "<YYYY-MM-Wn>"`.
 4. For re-scheduled items from a previous sprint, change milestone with the same command.
@@ -186,17 +233,17 @@ Each flow has the same shape: When → Steps → Done state.
 
 **When:** Backlog has grown unwieldy.
 
-1. `gh issue list --label backlog --state open`.
+1. Query project items with Status unset (or with a `Backlog` extension status if configured under `project.statuses`).
 2. Close stale (>3 months untouched, no longer relevant): `gh issue close N --reason "not planned" --comment "Stale; closing during triage."`.
 3. Re-prioritize survivors with priority labels.
-4. Promote ready items: `gh issue edit N --remove-label backlog --add-label todo`.
+4. Promote ready items: set Status to `Todo` via `sillok_project_status_set`.
 
 ### 8. Mid-Session Discovery
 
 **When:** Working on issue X, find a separate bug or idea worth filing.
 
 1. Note the discovery briefly.
-2. `gh issue create` with `bug` (or appropriate type), `backlog` stage. Don't triage immediately — the goal is to NOT context-switch.
+2. Create issue with `type=Bug` (or appropriate Type). Don't triage immediately — the goal is to NOT context-switch.
 3. Continue current task X.
 4. Revisit during next sprint planning (flow 6) or backlog triage (flow 7).
 
@@ -210,10 +257,10 @@ Each flow has the same shape: When → Steps → Done state.
 
 ## Common mistakes
 
-- Creating an issue without any stage label — default to `backlog` if uncertain
-- Forgetting `epic` on parent tracking issues — they get lost in filters that look for `feature|bug|improvement|infra`
+- Manually flipping stage labels — stages live in project status now. Use the Status field via `sillok_project_status_set` instead.
+- Forgetting to register the linked branch — the Development panel stays empty until `createLinkedBranch` runs.
 - Using task-list syntax (`- [ ] #N`) in the parent body alongside the GraphQL sub-issue mutation — pick one (GraphQL is the new way)
-- Mid-session triage of a discovered bug — file with `backlog` and move on
+- Mid-session triage of a discovered bug — file and move on
 - Using `Sprint 1` or ISO week (`2026-W17`) as milestone — must be `YYYY-MM-Wn` (year-month-week-of-month) per slice 4 design
 - `gh` CLI default repo gotcha — use `gh repo set-default ${REPO}` once per machine to avoid `--repo` on every command
 
@@ -223,23 +270,28 @@ User: "We want to add a recording-export feature. It'll need backend changes, fr
 
 Steps:
 
-1. Create parent (`epic`):
+1. Create parent (`Story` — single-repo composite):
 
    ```bash
-   gh issue create \
-     --title "Add recording export end-to-end" \
-     --label epic --label todo --label p2 \
-     --body "Tracking issue for recording-export feature spanning backend/frontend/native/analytics. Sub-issues to follow."
+   gh api repos/${OWNER}/${NAME}/issues \
+     -H "X-GitHub-Api-Version: 2026-03-10" \
+     -f title="Add recording export end-to-end" \
+     -f type=Story \
+     -f labels[]=p2 \
+     -f body="Tracking issue for recording-export feature spanning backend/frontend/native/analytics. Sub-issues to follow."
    ```
 
-   Returns issue #100.
+   Returns issue #100. Project workflow assigns Status `Todo`.
 
 2. Create child issues. Use heredoc for the body so newlines are real (bash double-quotes do NOT interpret `\n` — a literal `\n` would land in the rendered issue body):
 
    ```bash
-   gh issue create --title "Add /v1/exports endpoint" \
-     --label feature --label todo --label p2 \
-     --body "$(cat <<'EOF'
+   gh api repos/${OWNER}/${NAME}/issues \
+     -H "X-GitHub-Api-Version: 2026-03-10" \
+     -f title="Add /v1/exports endpoint" \
+     -f type=Feature \
+     -f labels[]=p2 \
+     -f body="$(cat <<'EOF'
    Parent: #100
 
    ## Summary
@@ -247,25 +299,7 @@ Steps:
    EOF
    )"
 
-   gh issue create --title "Add export button to recording detail UI" \
-     --label feature --label todo --label p2 \
-     --body "$(cat <<'EOF'
-   Parent: #100
-
-   ## Summary
-   Button in records detail screen calling features/records useExport hook.
-   EOF
-   )"
-
-   gh issue create --title "Add native export pipeline to recording-service" \
-     --label feature --label todo --label p2 \
-     --body "$(cat <<'EOF'
-   Parent: #100
-
-   ## Summary
-   Kotlin export bridge using existing audio-trimmer module.
-   EOF
-   )"
+   # ...repeat for the UI and native sub-issues with type=Feature.
    ```
 
    Returns #101, #102, #103.

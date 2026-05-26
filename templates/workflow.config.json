@@ -6,6 +6,32 @@
   "baseBranch": "main",
   "branchPrefix": "{type}/issue-",
 
+  "prdRepo": "",
+
+  "orgMode": false,
+
+  "project": {
+    "owner": "",
+    "number": 0,
+    "statusField": "Status",
+    "statuses": {
+      "todo":     "Todo",
+      "design":   "In Design",
+      "progress": "In Progress",
+      "review":   "In QA",
+      "done":     "Done"
+    }
+  },
+
+  "types": {
+    "list": ["Epic", "Story", "Feature", "Task", "Bug"],
+    "defaults": {
+      "feature":   "Feature",
+      "composite": "Story",
+      "prd":       "Epic"
+    }
+  },
+
   "worktree": {
     "enabled": true,
     "dir": ".worktrees",
@@ -36,13 +62,10 @@
   },
 
   "labels": {
-    "types": ["feature", "bug", "improvement", "infra", "epic"],
-    "stages": ["backlog", "todo", "designed", "in-progress", "in-review"],
     "priorities": ["p1", "p2", "p3", "p4"],
     "areas": [],
+    "natures": ["improvement", "refactor", "infra", "docs", "security", "performance"],
     "defaults": {
-      "type": "feature",
-      "stage": "todo",
       "priority": "p3"
     }
   }

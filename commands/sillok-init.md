@@ -39,6 +39,9 @@ SHIM_STATUS=fail
 CLAUDE_MD_STATUS=fail
 AREA_STATUS=fail
 LABELS_STATUS=fail
+TYPES_STATUS=fail
+PROJECT_STATUS=fail
+ORG_MODE=false
 ```
 
 ## Step 2: Detect repo and base branch
@@ -49,6 +52,53 @@ BASE_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'
 ```
 
 If `REPO` is empty, set a warning flag (printed at end). The user will need to fill `repo` in the generated config manually.
+
+## Step 2a: Detect org mode
+
+```bash
+OWNER_TYPE=$(gh api "/repos/$REPO" --jq '.owner.type' 2>/dev/null || echo "User")
+if [[ "$OWNER_TYPE" == "Organization" ]]; then
+  ORG_MODE=true
+else
+  ORG_MODE=false
+  echo "[sillok-init] ⚠️  User-owned repo detected. Issue Types and linked branches unavailable — using label fallback mode."
+fi
+```
+
+## Step 2b: Verify org Issue Types
+
+If `$ORG_MODE` is `false`, skip this step entirely (Issue Types are org-only):
+
+```bash
+if [[ "$ORG_MODE" != "true" ]]; then
+  TYPES_STATUS=skip-user-repo
+else
+  OWNER="${REPO%%/*}"
+  expected_types=("Epic" "Story" "Feature" "Task" "Bug")
+  existing_types=$(gh api -H "X-GitHub-Api-Version: 2026-03-10" "/orgs/$OWNER/issue-types" --jq '.[].name' 2>/dev/null || echo "")
+
+  missing=()
+  for t in "${expected_types[@]}"; do
+    if ! echo "$existing_types" | grep -qx "$t"; then
+      missing+=("$t")
+    fi
+  done
+
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "[sillok-init] Required org issue types missing: ${missing[*]}"
+    echo "  Ask your org owner to run:"
+    for t in "${missing[@]}"; do
+      echo "    gh api -X POST -H 'X-GitHub-Api-Version: 2026-03-10' /orgs/$OWNER/issue-types -f name=$t"
+    done
+    echo "  Or via UI: https://github.com/organizations/$OWNER/settings/issue-types"
+    TYPES_STATUS=missing
+  else
+    TYPES_STATUS=ok
+  fi
+fi
+```
+
+`TYPES_STATUS` is initialized to `fail` in Step 1 and surfaces in the Step 11 summary. A `missing` value triggers the ⚠️ warnings headline. `skip-user-repo` is informational (NOT a warning).
 
 ## Step 3: Detect package manager and verify commands
 
@@ -129,12 +179,35 @@ else
     --arg lint "$lint" \
     --arg typecheck "$typecheck" \
     --arg format "$format" \
+    --argjson orgMode "$ORG_MODE" \
     '{
       "$schema": "https://raw.githubusercontent.com/judeProground/sillok/main/schema/v1.json",
       "version": 1,
       "repo": $repo,
       "baseBranch": $baseBranch,
       "branchPrefix": $branchPrefix,
+      "prdRepo": "",
+      "orgMode": $orgMode,
+      "project": {
+        "owner": "",
+        "number": 0,
+        "statusField": "Status",
+        "statuses": {
+          "todo": "Todo",
+          "design": "In Design",
+          "progress": "In Progress",
+          "review": "In QA",
+          "done": "Done"
+        }
+      },
+      "types": {
+        "list": ["Epic", "Story", "Feature", "Task", "Bug"],
+        "defaults": {
+          "feature": "Feature",
+          "composite": "Story",
+          "prd": "Epic"
+        }
+      },
       "worktree": { "enabled": true, "dir": ".worktrees", "copyFiles": $copyFiles },
       "install": $install,
       "verify": { "lint": $lint, "typecheck": $typecheck, "format": $format },
@@ -142,11 +215,10 @@ else
       "commit": { "coAuthor": "" },
       "milestone": { "naming": "YYYY-MM-Wn", "sprintWeeks": 2, "weekStart": "monday" },
       "labels": {
-        "types": ["feature","bug","improvement","infra","epic"],
-        "stages": ["backlog","todo","designed","in-progress","in-review"],
-        "priorities": ["p1","p2","p3","p4"],
+        "priorities": ["p1", "p2", "p3", "p4"],
         "areas": [],
-        "defaults": { "type": "feature", "stage": "todo", "priority": "p3" }
+        "natures": ["improvement", "refactor", "infra", "docs", "security", "performance"],
+        "defaults": { "priority": "p3" }
       }
     }' > "$CFG"
 fi
@@ -287,6 +359,39 @@ The `--config` flag picks up `labels.areas` from the config (empty by default) a
 
 If `$REPO` is empty (detection failed), skip with a warning that the user must run `bash ${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-labels.sh <owner>/<repo> --config <path-to-config>` manually.
 
+## Step 9b: Verify project + Status field options
+
+If `project.owner` and `project.number` are configured, verify the project exists and the Status field has the expected option names.
+
+```bash
+PROJ_OWNER=$(jq -r '.project.owner' "$CFG")
+PROJ_NUM=$(jq -r '.project.number' "$CFG")
+if [[ -n "$PROJ_OWNER" && "$PROJ_NUM" != "0" && "$PROJ_NUM" != "null" ]]; then
+  expected_opts=("Todo" "In Design" "In Progress" "In QA" "Done")
+  actual_opts=$(gh api graphql -f query="{ organization(login: \"$PROJ_OWNER\") { projectV2(number: $PROJ_NUM) { field(name: \"Status\") { ... on ProjectV2SingleSelectField { options { name } } } } } }" --jq '.data.organization.projectV2.field.options[].name' 2>/dev/null || echo "")
+
+  proj_missing=()
+  for opt in "${expected_opts[@]}"; do
+    if ! echo "$actual_opts" | grep -qx "$opt"; then
+      proj_missing+=("$opt")
+    fi
+  done
+
+  if [[ ${#proj_missing[@]} -gt 0 ]]; then
+    echo "[sillok-init] Project $PROJ_OWNER/projects/$PROJ_NUM Status field missing options: ${proj_missing[*]}"
+    echo "  Add via UI: https://github.com/orgs/$PROJ_OWNER/projects/$PROJ_NUM/settings"
+    PROJECT_STATUS=incomplete
+  else
+    PROJECT_STATUS=ok
+  fi
+else
+  PROJECT_STATUS=unconfigured
+  echo "[sillok-init] Cross-repo PRD: set 'project.owner' and 'project.number' in workflow.config.json to enable status transitions"
+fi
+```
+
+`PROJECT_STATUS` is initialized to `fail` in Step 1. Values: `ok` (project verified), `incomplete` (Status field missing options), `unconfigured` (project not yet set in config — informational, not a warning).
+
 ## Step 10: Ensure spec/plan dirs
 
 ```bash
@@ -307,10 +412,14 @@ Compute the headline status icon from sub-step outcomes:
 #   CLAUDE_MD_STATUS= ok | fail                    (Step 8)
 #   AREA_STATUS     = auto-picked | none-detected | none-confident | skip-preserved | fail   (Step 8b)
 #   LABELS_STATUS   = ok | skipped-no-repo | fail  (Step 9)
+#   TYPES_STATUS    = ok | missing | skip-user-repo | fail   (Step 2b)
+#   PROJECT_STATUS  = ok | incomplete | unconfigured | fail   (Step 9b)
 
 # Critical steps — must all succeed for ✅
 if [[ "$CONFIG_STATUS" == "fail" || "$RULES_STATUS" == "fail" || "$CLAUDE_MD_STATUS" == "fail" || "$LABELS_STATUS" == "fail" ]]; then
   HEADLINE="❌ sillok init FAILED"
+elif [[ "$TYPES_STATUS" == "missing" || "$PROJECT_STATUS" == "incomplete" ]]; then
+  HEADLINE="⚠️  sillok initialized (with warnings — see below)"
 elif [[ "$SHIM_STATUS" == "fail" || "$AREA_STATUS" == "fail" ]]; then
   HEADLINE="⚠️  sillok initialized (with warnings — see below)"
 else
@@ -327,14 +436,18 @@ Repo:          <REPO or "(detect failed, edit manually)">
 Base branch:   <BASE_BRANCH>
 Branch prefix: <BRANCH_PREFIX>
 Stack:         <one of pnpm/yarn/npm/bun/bundler/go/cargo/poetry/pipenv or "unknown">
+Org mode:      <ORG_MODE> (<OWNER_TYPE>)                     [detected]
 
 Created:
 - .claude/sillok/workflow.config.json                  [<CONFIG_STATUS>]
 - .claude/sillok/rules/* (N files, M skipped: <list>)  [<RULES_STATUS>]
-- .claude/commands/sillok-{start,design,execute,end,epic}.md  [<SHIM_STATUS>]
+- .claude/commands/sillok-{start,design,execute,end,story}.md  [<SHIM_STATUS>]
 - CLAUDE.md (appended Sillok import block)             [<CLAUDE_MD_STATUS>]
 - <SPEC_DIR>/ and <PLAN_DIR>/ (ensured)
 - Labels on <REPO>                                     [<LABELS_STATUS>]
+- Org Issue Types (Epic/Story/Feature/Task/Bug)        [<TYPES_STATUS>]
+  - `skip-user-repo` → "📋 User-owned repo — Issue Types skipped (using label fallback)."
+- Project + Status options                             [<PROJECT_STATUS>]
 ```
 
 **Area-label sub-summary** (always printed when relevant):

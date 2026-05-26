@@ -47,11 +47,36 @@ fi
 # Open epics (for parent suggestion)
 echo
 echo "### Open epics"
-epics_json=$(gh issue list --repo "$REPO" --label epic --state open --json number,title --limit 10 2>/dev/null || echo "[]")
-if [[ "$(echo "$epics_json" | jq 'length')" == "0" ]]; then
+
+# Local-repo stories (formerly epics). Still relevant for in-repo composite work.
+local_stories=$(gh api graphql -H "X-GitHub-Api-Version: 2026-03-10" \
+  -f query="{ repository(owner: \"${REPO%%/*}\", name: \"${REPO##*/}\") {
+    issues(first: 20, states: OPEN, filterBy: {issueType: \"Story\"}) {
+      nodes { number title }
+    }
+  } }" --jq '.data.repository.issues.nodes[]? | "  - (in this repo) #\(.number) \(.title)"' 2>/dev/null || echo "")
+
+# Cross-repo PRD epics from prdRepo, if configured.
+PRD_REPO=$(sillok_config prdRepo)
+prd_epics=""
+if [[ -n "$PRD_REPO" ]]; then
+  prd_epics=$(gh api graphql -H "X-GitHub-Api-Version: 2026-03-10" \
+    -f query="{ repository(owner: \"${PRD_REPO%%/*}\", name: \"${PRD_REPO##*/}\") {
+      issues(first: 20, states: OPEN, filterBy: {issueType: \"Epic\"}) {
+        nodes { number title }
+      }
+    } }" --jq ".data.repository.issues.nodes[]? | \"  - (in $PRD_REPO) #\(.number) \(.title)\"" 2>/dev/null || echo "")
+fi
+
+if [[ -z "$local_stories" && -z "$prd_epics" ]]; then
   echo "- (none — standalone unless --parent specified)"
 else
-  echo "$epics_json" | jq -r '.[] | "- #\(.number) \(.title)"'
+  if [[ -n "$prd_epics" ]]; then
+    printf '%s\n' "$prd_epics"
+  fi
+  if [[ -n "$local_stories" ]]; then
+    printf '%s\n' "$local_stories"
+  fi
 fi
 
 # Sprint milestone: YYYY-MM-Wn where n = ceil(sprint_start_day / 7), sprint starts Monday
