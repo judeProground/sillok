@@ -26,6 +26,11 @@
       "pattern": "^[^/]+/[^/]+$",
       "description": "Optional cross-repo PRD repository slug ('<owner>/<name>'). When set, /sillok-start auto-suggests open epics from this repo and accepts cross-repo parent linking."
     },
+    "orgMode": {
+      "type": "boolean",
+      "default": false,
+      "description": "Auto-detected by /sillok-init. true = org repo (Issue Types + linked branches). false = user repo (label fallback)."
+    },
     "project": {
       "type": "object",
       "required": ["owner", "number", "statusField", "statuses"],

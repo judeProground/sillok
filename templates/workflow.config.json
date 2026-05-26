@@ -8,6 +8,8 @@
 
   "prdRepo": "",
 
+  "orgMode": false,
+
   "project": {
     "owner": "",
     "number": 0,
