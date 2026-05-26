@@ -41,6 +41,7 @@ AREA_STATUS=fail
 LABELS_STATUS=fail
 TYPES_STATUS=fail
 PROJECT_STATUS=fail
+ORG_MODE=false
 ```
 
 ## Step 2: Detect repo and base branch
@@ -52,34 +53,52 @@ BASE_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'
 
 If `REPO` is empty, set a warning flag (printed at end). The user will need to fill `repo` in the generated config manually.
 
-## Step 2b: Verify org Issue Types
+## Step 2a: Detect org mode
 
 ```bash
-OWNER="${REPO%%/*}"
-expected_types=("Epic" "Story" "Feature" "Task" "Bug")
-existing_types=$(gh api -H "X-GitHub-Api-Version: 2026-03-10" "/orgs/$OWNER/issue-types" --jq '.[].name' 2>/dev/null || echo "")
-
-missing=()
-for t in "${expected_types[@]}"; do
-  if ! echo "$existing_types" | grep -qx "$t"; then
-    missing+=("$t")
-  fi
-done
-
-if [[ ${#missing[@]} -gt 0 ]]; then
-  echo "[sillok-init] Required org issue types missing: ${missing[*]}"
-  echo "  Ask your org owner to run:"
-  for t in "${missing[@]}"; do
-    echo "    gh api -X POST -H 'X-GitHub-Api-Version: 2026-03-10' /orgs/$OWNER/issue-types -f name=$t"
-  done
-  echo "  Or via UI: https://github.com/organizations/$OWNER/settings/issue-types"
-  TYPES_STATUS=missing
+OWNER_TYPE=$(gh api "/repos/$REPO" --jq '.owner.type' 2>/dev/null || echo "User")
+if [[ "$OWNER_TYPE" == "Organization" ]]; then
+  ORG_MODE=true
 else
-  TYPES_STATUS=ok
+  ORG_MODE=false
+  echo "[sillok-init] ⚠️  User-owned repo detected. Issue Types and linked branches unavailable — using label fallback mode."
 fi
 ```
 
-`TYPES_STATUS` is initialized to `fail` in Step 1 and surfaces in the Step 11 summary. A `missing` value triggers the ⚠️ warnings headline.
+## Step 2b: Verify org Issue Types
+
+If `$ORG_MODE` is `false`, skip this step entirely (Issue Types are org-only):
+
+```bash
+if [[ "$ORG_MODE" != "true" ]]; then
+  TYPES_STATUS=skip-user-repo
+else
+  OWNER="${REPO%%/*}"
+  expected_types=("Epic" "Story" "Feature" "Task" "Bug")
+  existing_types=$(gh api -H "X-GitHub-Api-Version: 2026-03-10" "/orgs/$OWNER/issue-types" --jq '.[].name' 2>/dev/null || echo "")
+
+  missing=()
+  for t in "${expected_types[@]}"; do
+    if ! echo "$existing_types" | grep -qx "$t"; then
+      missing+=("$t")
+    fi
+  done
+
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "[sillok-init] Required org issue types missing: ${missing[*]}"
+    echo "  Ask your org owner to run:"
+    for t in "${missing[@]}"; do
+      echo "    gh api -X POST -H 'X-GitHub-Api-Version: 2026-03-10' /orgs/$OWNER/issue-types -f name=$t"
+    done
+    echo "  Or via UI: https://github.com/organizations/$OWNER/settings/issue-types"
+    TYPES_STATUS=missing
+  else
+    TYPES_STATUS=ok
+  fi
+fi
+```
+
+`TYPES_STATUS` is initialized to `fail` in Step 1 and surfaces in the Step 11 summary. A `missing` value triggers the ⚠️ warnings headline. `skip-user-repo` is informational (NOT a warning).
 
 ## Step 3: Detect package manager and verify commands
 
@@ -160,6 +179,7 @@ else
     --arg lint "$lint" \
     --arg typecheck "$typecheck" \
     --arg format "$format" \
+    --argjson orgMode "$ORG_MODE" \
     '{
       "$schema": "https://raw.githubusercontent.com/judeProground/sillok/main/schema/v1.json",
       "version": 1,
@@ -167,6 +187,7 @@ else
       "baseBranch": $baseBranch,
       "branchPrefix": $branchPrefix,
       "prdRepo": "",
+      "orgMode": $orgMode,
       "project": {
         "owner": "",
         "number": 0,
@@ -391,7 +412,7 @@ Compute the headline status icon from sub-step outcomes:
 #   CLAUDE_MD_STATUS= ok | fail                    (Step 8)
 #   AREA_STATUS     = auto-picked | none-detected | none-confident | skip-preserved | fail   (Step 8b)
 #   LABELS_STATUS   = ok | skipped-no-repo | fail  (Step 9)
-#   TYPES_STATUS    = ok | missing | fail          (Step 2b)
+#   TYPES_STATUS    = ok | missing | skip-user-repo | fail   (Step 2b)
 #   PROJECT_STATUS  = ok | incomplete | unconfigured | fail   (Step 9b)
 
 # Critical steps — must all succeed for ✅
@@ -415,6 +436,7 @@ Repo:          <REPO or "(detect failed, edit manually)">
 Base branch:   <BASE_BRANCH>
 Branch prefix: <BRANCH_PREFIX>
 Stack:         <one of pnpm/yarn/npm/bun/bundler/go/cargo/poetry/pipenv or "unknown">
+Org mode:      <ORG_MODE> (<OWNER_TYPE>)                     [detected]
 
 Created:
 - .claude/sillok/workflow.config.json                  [<CONFIG_STATUS>]
@@ -424,6 +446,7 @@ Created:
 - <SPEC_DIR>/ and <PLAN_DIR>/ (ensured)
 - Labels on <REPO>                                     [<LABELS_STATUS>]
 - Org Issue Types (Epic/Story/Feature/Task/Bug)        [<TYPES_STATUS>]
+  - `skip-user-repo` → "📋 User-owned repo — Issue Types skipped (using label fallback)."
 - Project + Status options                             [<PROJECT_STATUS>]
 ```
 
