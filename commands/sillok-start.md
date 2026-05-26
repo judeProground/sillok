@@ -88,7 +88,9 @@ Resolve type label (`<type>`) to Issue Type name via config:
 - `bug` → use `Bug` (literal)
 - `task` → use `Task` (literal)
 
-Create the issue via REST so we can include `type` and `assignees` in one call:
+Read orgMode from config (`sillok_config orgMode`). Branch the REST call:
+
+**Org mode (`orgMode=true`):**
 
 ```bash
 issue_url=$(gh api -X POST \
@@ -102,6 +104,23 @@ issue_url=$(gh api -X POST \
   -f "labels[]=<area-if-any>" \
   --jq '.html_url')
 ```
+
+**User mode (`orgMode=false`):**
+
+```bash
+issue_url=$(gh api -X POST \
+  -H "X-GitHub-Api-Version: 2026-03-10" \
+  "/repos/$REPO/issues" \
+  -f title="<title>" \
+  -f body="<body>" \
+  -f "assignees[]=$(gh api user --jq .login)" \
+  -f "labels[]=<priority>" \
+  -f "labels[]=<type-lowercased>" \
+  -f "labels[]=<area-if-any>" \
+  --jq '.html_url')
+```
+
+(Difference: org mode has `-f type=X`, user mode has `-f labels[]=x` instead.)
 
 Capture `<N>` by parsing the URL's last segment.
 
