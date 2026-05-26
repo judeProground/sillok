@@ -21,6 +21,15 @@ _SILLOK_TYPE_ID_CACHE=""
 # Returns empty + non-zero exit if not found.
 sillok_issue_type_id() {
   local name="$1"
+
+  local org_mode
+  org_mode=$(sillok_config orgMode)
+  if [[ "$org_mode" != "true" ]]; then
+    # User repo: Issue Types not available
+    echo ""
+    return 0
+  fi
+
   local repo owner
 
   repo=$(sillok_config_required repo) || return 1
@@ -56,15 +65,25 @@ sillok_issue_type_id() {
 }
 
 # Apply an Issue Type to an existing issue.
-# Usage: sillok_issue_type_set <repo> <issue-N> <type-name>
-#   e.g. sillok_issue_type_set myorg/frontend 42 Feature
+# Org mode: sets via REST type field.
+# User mode: falls back to adding a lowercase label.
 sillok_issue_type_set() {
   local repo="$1"
   local issue_n="$2"
   local type_name="$3"
 
-  gh api -X PATCH \
-    -H "X-GitHub-Api-Version: 2026-03-10" \
-    "/repos/$repo/issues/$issue_n" \
-    -f "type=$type_name" >/dev/null
+  local org_mode
+  org_mode=$(sillok_config orgMode)
+
+  if [[ "$org_mode" == "true" ]]; then
+    gh api -X PATCH \
+      -H "X-GitHub-Api-Version: 2026-03-10" \
+      "/repos/$repo/issues/$issue_n" \
+      -f "type=$type_name" >/dev/null
+  else
+    # User repo: Issue Types not available. Fall back to label.
+    local label
+    label=$(printf '%s' "$type_name" | tr '[:upper:]' '[:lower:]')
+    gh issue edit "$issue_n" --repo "$repo" --add-label "$label" 2>/dev/null || true
+  fi
 }
