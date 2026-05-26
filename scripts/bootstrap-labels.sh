@@ -56,6 +56,19 @@ create p2           FF8800 "High"
 create p3           CBCCD4 "Normal (default)"
 create p4           E6E6EB "Low"
 
+# Type labels — only for user-mode repos (org repos use Issue Types instead)
+SCRIPT_DIR_BL=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+source "$SCRIPT_DIR_BL/lib/config.sh" 2>/dev/null || true
+ORG_MODE=$(sillok_config orgMode 2>/dev/null || echo "false")
+if [[ "$ORG_MODE" != "true" ]]; then
+  echo "  Type labels (user-repo fallback)..."
+  create feature  0e8a16 "New user-facing functionality"
+  create story    8B5CF6 "In-repo composite with integration branch"
+  create bug      d73a4a "Broken behavior"
+  create task     666666 "Generic work unit"
+fi
+
 # Areas (optional — driven by labels.areas in workflow.config.json)
 if [[ -n "$CONFIG" ]]; then
   if [[ ! -f "$CONFIG" ]]; then
