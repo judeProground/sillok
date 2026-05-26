@@ -52,7 +52,9 @@ Used when the user is on `main`, an unrelated branch, or a fresh worktree.
    <optional>
    ```
 
-4. Create the issue (typed as `Story` via the REST issue-types API):
+4. Create the issue. Read orgMode from config (`sillok_config orgMode`). Branch the REST call:
+
+   **Org mode (`orgMode=true`):**
 
    ```bash
    issue_url=$(gh api -X POST \
@@ -65,6 +67,22 @@ Used when the user is on `main`, an unrelated branch, or a fresh worktree.
      -f "labels[]=p3" \
      --jq '.html_url')
    ```
+
+   **User mode (`orgMode=false`):**
+
+   ```bash
+   issue_url=$(gh api -X POST \
+     -H "X-GitHub-Api-Version: 2026-03-10" \
+     "/repos/$REPO/issues" \
+     -f title="<story title>" \
+     -f body="<body>" \
+     -f "assignees[]=$(gh api user --jq .login)" \
+     -f "labels[]=p3" \
+     -f "labels[]=story" \
+     --jq '.html_url')
+   ```
+
+   (Difference: org mode has `-f type=Story`, user mode has `-f labels[]=story` instead.)
 
    Capture `<N>` from the URL (`${issue_url##*/}`).
 
