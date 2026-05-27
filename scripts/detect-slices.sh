@@ -8,6 +8,10 @@
 #   * Native modules: modules/<name>/
 #   * Monorepo packages: packages/<name>/
 #   * Monorepo apps: apps/<name>/
+#   * Go: internal/<name>/, cmd/<name>/, pkg/<name>/
+#   * Rust workspace: crates/<name>/
+#   * Microservices: services/<name>/
+#   * Generic src/ fallback: src/<name>/ (only when no FSD subdirs exist under src/)
 #
 # A name's rank = the number of distinct layout families it appears in.
 # Generic infrastructure names (components, utils, types, etc.) are filtered.
@@ -32,17 +36,40 @@ fi
 # Layout families: each entry is "<existence-path>:<scan-path>". For FSD entries
 # the existence-path and scan-path coincide.
 FAMILIES=(
+  # FSD (frontend)
   "$ROOT/src/entities"
   "$ROOT/src/features"
   "$ROOT/src/widgets"
   "$ROOT/src/pages"
   "$ROOT/src/slices"
   "$ROOT/src/modules"
+  # App-router / native
   "$ROOT/app"
   "$ROOT/modules"
+  # Monorepo
   "$ROOT/packages"
   "$ROOT/apps"
+  # Go
+  "$ROOT/internal"
+  "$ROOT/cmd"
+  "$ROOT/pkg"
+  # Rust workspace
+  "$ROOT/crates"
+  # Microservices
+  "$ROOT/services"
 )
+
+# Generic src/ fallback: scan src/ as flat when no FSD subdirs exist.
+has_fsd=false
+for fsd_dir in entities features widgets pages slices modules; do
+  if [[ -d "$ROOT/src/$fsd_dir" ]]; then
+    has_fsd=true
+    break
+  fi
+done
+if [[ "$has_fsd" == "false" && -d "$ROOT/src" ]]; then
+  FAMILIES+=("$ROOT/src")
+fi
 
 # Generic names that are never domain slices. Kept as a single regex-ready string
 # for grep -wxF matching. Add new names as they show up in real-world projects.

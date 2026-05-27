@@ -20,9 +20,9 @@ The plugin is built around five workflow commands plus one bootstrap command. Th
 - Claude Code installed.
 - `gh` CLI authenticated against your GitHub account.
 - `jq` available on `PATH`.
-- **An organization-owned repository.** GitHub Issue Types are an org-only feature; personal repos can't use them.
-- **Org owner adds the missing Issue Types.** Sillok v2 uses `Epic`, `Story`, `Feature`, `Task`, and `Bug` as Issue Types. `Feature`, `Task`, and `Bug` usually exist by default; an org owner must add `Epic` and `Story` from the org-level **Issue Types** settings (Organization → Settings → Issue Types).
-- **A Projects v2 board** with:
+- **Organization repo (recommended) or personal repo.** Org repos get full Issue Types + Projects v2 integration (`orgMode: true`). Personal repos work too — sillok falls back to label-based type tracking when `orgMode: false` (the default).
+- **Org repos only: add missing Issue Types.** Sillok v2 uses `Epic`, `Story`, `Feature`, `Task`, and `Bug` as Issue Types. `Feature`, `Task`, and `Bug` usually exist by default; an org owner must add `Epic` and `Story` from the org-level **Issue Types** settings (Organization → Settings → Issue Types).
+- **A Projects v2 board** (optional for personal repos, recommended for orgs) with:
   - a `Status` single-select field configured with exactly these five options: **Todo**, **In Design**, **In Progress**, **In QA**, **Done**.
   - the built-in workflows **"Auto-add to project"** and **"Item closed → Done"** enabled, so new issues land in Todo automatically and merged PRs close their issues into Done.
 
@@ -33,7 +33,7 @@ cd /path/to/your-project
 /sillok-init
 ```
 
-`/sillok-init` is zero-prompt: it detects your repo, base branch, package manager (validating lint/format/typecheck against `package.json#scripts`), branch prefix, and gitignored config files automatically, writes `.claude/sillok/workflow.config.json`, scaffolds six rule files under `.claude/sillok/rules/`, installs shortcut shims under `.claude/commands/`, appends import lines to your `CLAUDE.md`, creates the 10 default labels on the GitHub repo (6 natures + 4 priorities — Issue Types and project Status replace the old `type:*`/`stage:*` labels), and auto-picks vertical-slice candidates as `area:*` labels (top 15 by appearance across FSD/monorepo layouts). Edit the config file if anything detected wrong.
+`/sillok-init` is zero-prompt: it detects your repo, base branch, package manager (validating lint/format/typecheck against `package.json#scripts`), branch prefix, Projects v2 board (auto-detects from repo owner's project list), and gitignored config files automatically, writes `.claude/sillok/workflow.config.json`, scaffolds six rule files under `.claude/sillok/rules/`, installs shortcut shims under `.claude/commands/`, appends import lines to your `CLAUDE.md`, creates the 10 default labels on the GitHub repo (6 natures + 4 priorities — Issue Types and project Status replace the old `type:*`/`stage:*` labels), and auto-picks vertical-slice candidates as `area:*` labels (top 15 by appearance across FSD/monorepo layouts). Edit the config file if anything detected wrong.
 
 ## Command invocation
 
@@ -102,6 +102,8 @@ Cross-repo `Closes #N` syntax is not honored by GitHub, so PRD closure stays man
 - `repo` — `owner/name` for the GitHub repo
 - `baseBranch` — branch new feature branches are cut from
 - `branchPrefix` — template, e.g. `{type}/issue-` (default), `{user}/issue-`, or a literal like `feat/`. `{type}` resolves to the issue's Issue Type (`feature`/`bug`/`task`/`story`/`epic`); `{user}` resolves to your git user name.
+- `language` — body generation language: `"auto"` (default, matches session language), `"ko"`, or `"en"`. Section headers stay English for parsing; prose follows the chosen language.
+- `orgMode` — `true` for org repos (Issue Types + Projects v2 APIs), `false` (default) for personal repos (falls back to label-based type tracking).
 - `prdRepo` — *optional.* `owner/name` of a separate repo where Epic-typed PRD issues live, for cross-repo PRD work. Leave empty if PRDs live in the same repo as code.
 - `project.{owner, number, statusField, statuses}` — Projects v2 binding. `owner` is the org/user that owns the project, `number` is the project number from its URL, `statusField` is the single-select field name (default `Status`), and `statuses` maps sillok's five logical phases (`todo` / `design` / `progress` / `review` / `done`) to the option names on your board (defaults: `Todo`, `In Design`, `In Progress`, `In QA`, `Done`).
 - `types.{list, defaults}` — Issue Type configuration. `list` is the Issue Types sillok expects to exist on the org (default: `["Epic", "Story", "Feature", "Task", "Bug"]`). `defaults` maps sillok roles (`feature`, `composite`, `prd`) to the Issue Type used when creating each (defaults: `Feature`, `Story`, `Epic`).

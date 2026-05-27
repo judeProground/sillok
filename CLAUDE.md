@@ -37,7 +37,14 @@ Why: bash is much cheaper than LLM tool round-trips for state checks, and printi
 
 ### Config resolution: project overrides plugin default
 
-`scripts/lib/config.sh` is the single config reader. Every script sources it and calls `sillok_config <key>` / `sillok_config_array <key>` / `sillok_config_required <key>`. Precedence:
+`scripts/lib/` is a shared library directory with four modules. Every script sources the ones it needs via `SCRIPT_DIR=$(cd …) && source "$SCRIPT_DIR/lib/<module>.sh"`.
+
+- **`config.sh`** — config reader (`sillok_config <key>` / `sillok_config_array <key>` / `sillok_config_required <key>`)
+- **`issue-types.sh`** — wraps the GitHub REST API for org-level Issue Types (v2)
+- **`project.sh`** — wraps GraphQL mutations for Projects v2 (add item, set status)
+- **`dev-link.sh`** — wraps `createLinkedBranch` GraphQL so issues show linked branches in the Development panel
+
+Config precedence:
 
 1. `<git-root>/.claude/sillok/workflow.config.json` (consumer project)
 2. `${CLAUDE_PLUGIN_ROOT}/templates/workflow.config.json` (plugin fallback)
@@ -85,6 +92,17 @@ The `sillok-shim: true` frontmatter marker identifies sillok-managed shims for i
 
 Detection runs in `scripts/detect-slices.sh`; the rank-filter lives in `scripts/pick-areas.sh` (NOT inline awk in the spec). Reason: agent-readers of markdown specs strip bare `$1` / `$2` tokens in inline code blocks, corrupting any inline awk filter into `'... >= 2 { print }'`. Keep `$N`-using awk inside scripts that the agent calls, not reads. See #11 for the bug that surfaced this.
 
+### v2: Issue Types + Projects v2 + Development panel
+
+v2.0 replaced label-based type/stage tracking with GitHub-native primitives:
+
+- **Issue Types** — `lib/issue-types.sh` calls the org-level REST API (`/orgs/:org/issue-types`) to set type (Feature, Bug, Task, etc.) on issues instead of `type:*` labels.
+- **Projects v2** — `lib/project.sh` uses GraphQL to add issues to a project board and set the Status single-select field, replacing `stage:*` labels.
+- **Development panel linking** — `lib/dev-link.sh` calls `createLinkedBranch` so branches appear in the issue's Development section without waiting for a PR.
+- **Migration** — `scripts/migrate-v1-to-v2.sh` converts an existing v1 repo (removes old labels, sets Issue Types, moves items to a project).
+
+`orgMode` in config gates these features: when `false` (user repos), Issue Types and project mutations are skipped since they require org-level APIs.
+
 ## Script index
 
 | Script | Purpose |
@@ -97,7 +115,11 @@ Detection runs in `scripts/detect-slices.sh`; the rank-filter lives in `scripts/
 | `pick-areas.sh` | Rank-filters slice candidates (top 15, rank ≥ 2) |
 | `slug-from-title.sh` | Converts issue title → kebab-case branch slug |
 | `write-shim-commands.sh` | Writes shortcut command shims during init |
+| `migrate-v1-to-v2.sh` | Migrates a repo from v1 (label-based types/stages) to v2 (Issue Types + Projects v2) |
 | `lib/config.sh` | Shared config reader (sourced by all other scripts) |
+| `lib/issue-types.sh` | GitHub Issue Types REST API helpers |
+| `lib/project.sh` | Projects v2 GraphQL helpers (add item, set status) |
+| `lib/dev-link.sh` | Development panel branch linking via GraphQL |
 
 ## Testing
 

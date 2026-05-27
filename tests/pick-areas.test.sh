@@ -28,11 +28,19 @@ out=$(printf '' | bash "$SCRIPT")
 [[ -z "$out" ]] || fail "expected empty, got '$out'"
 pass "empty input → empty output"
 
-echo "test: all rank-1 input → empty output"
+echo "test: all rank-1 input → emit all (single-family fallback)"
 input=$'foo\t1\nbar\t1\nbaz\t1\n'
 out=$(printf '%s' "$input" | bash "$SCRIPT")
-[[ -z "$out" ]] || fail "expected empty, got '$out'"
-pass "all rank-1 → empty (none-confident case)"
+expected=$'foo\nbar\nbaz'
+[[ "$out" == "$expected" ]] || fail "expected '$expected', got '$out'"
+pass "all rank-1 → all emitted (single-family project)"
+
+echo "test: mixed ranks still filters rank-1 out"
+input=$'auth\t3\nbilling\t2\nfoo\t1\n'
+out=$(printf '%s' "$input" | bash "$SCRIPT")
+expected=$'auth\nbilling'
+[[ "$out" == "$expected" ]] || fail "expected '$expected', got '$out'"
+pass "mixed ranks: rank-1 still filtered when higher ranks exist"
 
 echo "test: preserves input ordering (does not sort)"
 input=$'zebra\t4\nalpha\t3\nmango\t2\n'

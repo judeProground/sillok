@@ -6,6 +6,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.2.0] — 2026-05-27
+
+### Added
+- **Backend and single-family project support in area-label detection (#31).** `detect-slices.sh` now scans Go (`internal/`, `cmd/`, `pkg/`), Rust (`crates/`), and microservices (`services/`) layout families, plus a generic `src/` flat scan when no FSD subdirs exist (covers Python, Java, and other backend structures).
+- **`pick-areas.sh` adaptive threshold.** When all candidates are rank 1 (single-family project), threshold drops to 1 so candidates are emitted instead of silently filtered. Multi-family projects retain the rank >= 2 cross-validation.
+
+### Changed
+- **CLAUDE.md** updated with v2 concepts (Issue Types, Projects v2, Development panel, lib/ modules).
+- **README.md** prerequisites relaxed: personal repos supported via `orgMode: false`; added `language` and `orgMode` config docs; noted auto-detect project in `/sillok-init`.
+
 ## [2.1.0] — 2026-05-27
 
 ### Added

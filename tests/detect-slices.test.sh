@@ -23,7 +23,7 @@ make_fixture() {
 
 # Fixture 1: FSD-layout with three real domains, one generic-name folder, one underscore-prefixed.
 TMP1=$(mktemp -d)
-trap 'rm -rf "$TMP1" "$TMP2" "$TMP3" "$TMP4" "$TMP5"' EXIT
+trap 'rm -rf "$TMP1" "$TMP2" "$TMP3" "$TMP4" "$TMP5" "$TMP6" "$TMP7"' EXIT
 make_fixture "$TMP1" \
   src/entities/auth src/entities/billing src/entities/dashboard \
   src/features/auth src/features/billing \
@@ -90,6 +90,44 @@ out=$(bash "$SCRIPT" "$TMP5")
 echo "$out" | awk -F'\t' '{print $1}' | grep -q '(' && fail "bracketed names should be filtered"
 echo "$out" | awk -F'\t' '{print $1}' | grep -qx profile || fail "expected profile through"
 pass "brackets filtered; plain names pass"
+
+# Fixture 6: Python backend — flat src/<name>/ with no FSD dirs.
+TMP6=$(mktemp -d)
+make_fixture "$TMP6" \
+  src/alerts src/backtest src/client src/collector src/strategy
+
+echo "test: Python backend src/<name>/ detected (no FSD dirs → flat src/ scan)"
+out=$(bash "$SCRIPT" "$TMP6")
+echo "$out" | awk -F'\t' '{print $1}' | grep -qx alerts || fail "expected alerts in output"
+echo "$out" | awk -F'\t' '{print $1}' | grep -qx strategy || fail "expected strategy in output"
+n=$(echo "$out" | wc -l | tr -d ' ')
+[[ "$n" -eq 5 ]] || fail "expected 5 candidates, got $n"
+pass "Python backend: 5 domain dirs detected from src/"
+
+echo "test: FSD src/ is NOT scanned flat (FSD families take precedence)"
+TMP_FSD_CHECK=$(mktemp -d)
+make_fixture "$TMP_FSD_CHECK" \
+  src/entities/auth src/features/auth src/entities/billing \
+  src/some-random-dir
+out=$(bash "$SCRIPT" "$TMP_FSD_CHECK")
+echo "$out" | awk -F'\t' '{print $1}' | grep -qx some-random-dir \
+  && fail "src/ flat scan should NOT fire when FSD dirs exist"
+pass "FSD projects don't trigger flat src/ fallback"
+rm -rf "$TMP_FSD_CHECK"
+
+# Fixture 7: Go layout — internal/ + cmd/.
+TMP7=$(mktemp -d)
+make_fixture "$TMP7" \
+  internal/auth internal/billing internal/storage \
+  cmd/server cmd/worker
+
+echo "test: Go layout (internal + cmd) detected"
+out=$(bash "$SCRIPT" "$TMP7")
+echo "$out" | awk -F'\t' '{print $1}' | grep -qx auth || fail "expected auth from internal/"
+echo "$out" | awk -F'\t' '{print $1}' | grep -qx server || fail "expected server from cmd/"
+auth_rank=$(echo "$out" | awk -F'\t' '$1=="auth"{print $2}')
+[[ "$auth_rank" == "1" ]] || fail "expected auth rank 1 (only in internal/), got '$auth_rank'"
+pass "Go layout: internal/ and cmd/ both scanned"
 
 echo "test: hard cap at 100 results"
 TMP_BIG=$(mktemp -d)
