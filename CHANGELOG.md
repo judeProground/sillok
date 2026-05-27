@@ -6,6 +6,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-05-27
+
+### Added
+- **Language config for multilingual body generation (#19).** New `language` field in `workflow.config.json` (`auto`/`ko`/`en`). `auto` (default) matches the session language — Korean sessions produce Korean issue bodies, PR summaries, and specs. Section headers and structural markers stay English for parsing compatibility.
+
 ## [2.0.3] — 2026-05-27
 
 ### Fixed
