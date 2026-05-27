@@ -6,13 +6,13 @@ GitHub-Issue-driven feature pipeline. Always use these slash commands instead of
 
 ```
 /sillok-start   → creates GH issue + branch + worktree (cut from origin/main)
-/sillok-design  → brainstorms + writes spec, pastes content into issue body, label todo→designed
-/sillok-execute → writes plan, dispatches subagents per task with verify-gate, label designed→in-progress
-/sillok-end     → opens PR, label in-progress→in-review, done-note in PR body
+/sillok-design  → brainstorms + writes spec, pastes content into issue body, status Todo→In Design
+/sillok-execute → writes plan, dispatches subagents per task with verify-gate, status In Design→In Progress
+/sillok-end     → opens PR, status In Progress→In QA, done-note in PR body
                         → squash-merge auto-closes the issue via `Closes #N`
 ```
 
-Stage labels (`todo`/`designed`/`in-progress`/`in-review`) are flipped by the commands — do not edit by hand.
+Project status (`Todo`/`In Design`/`In Progress`/`In QA`) is set by the commands — do not change by hand.
 
 ## Command invocation forms
 
@@ -49,7 +49,7 @@ Every `/sillok-start` creates `.worktrees/<N>-<slug>` and bases the branch on `o
 ## Don't bypass
 
 - Don't `gh issue create` directly — use `/sillok-start` so labels, milestone, parent linking, and worktree all happen together.
-- Don't manually flip stage labels — let the commands do it.
+- Don't manually change project status — let the commands do it.
 - Don't open PRs via `gh pr create` — use `/sillok-end` so the body uses the convention and `Closes #N` auto-closes on merge.
 
 ## Epic = integration branch

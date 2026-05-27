@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # sillok — precompute deterministic state for /sillok-execute.
-# Outputs current branch + mode + issue metadata + stage + spec existence +
+# Outputs current branch + mode + issue metadata + project status + spec existence +
 # plan existence + CWD check. Same shape as precompute-design.sh but with
 # spec REQUIRED (abort) and plan existence informational (write vs resume).
 set -euo pipefail

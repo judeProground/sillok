@@ -6,7 +6,7 @@ You are running the `/sillok-execute` slash command for the sillok.
 
 ## Step 1: State derivation + mode detection
 
-Run the precompute script. It outputs branch + mode + issue metadata + stage + spec existence + plan existence + CWD check in one shot:
+Run the precompute script. It outputs branch + mode + issue metadata + project status + spec existence + plan existence + CWD check in one shot:
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/precompute-execute.sh
@@ -18,7 +18,7 @@ Read the markdown block. Show it back to the user as the current state summary.
 
 **Mode-specific handling:**
 
-- **Single-issue mode**: precompute resolved everything (issue, slug, stage, spec path, plan path).
+- **Single-issue mode**: precompute resolved everything (issue, slug, project status, spec path, plan path).
 - **Umbrella mode**: prompt user for which sub-issue to execute (mapping required), then proceed as single-issue against that issue number.
 - **Other branch**: ABORT.
 

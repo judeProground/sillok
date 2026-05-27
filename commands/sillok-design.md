@@ -18,7 +18,7 @@ Read the markdown block. Show it back to the user as the current state summary.
 
 **Mode-specific handling:**
 
-- **Single-issue mode**: precompute resolved `<N>`, `<slug>`, title, stage, and spec existence. Continue to step 2.
+- **Single-issue mode**: precompute resolved `<N>`, `<slug>`, title, project status, and spec existence. Continue to step 2.
 - **Umbrella mode**: precompute can't resolve `<N>` alone (multiple sub-issues). Fetch active sub-issues and prompt:
   - Map umbrella to its parent epic by asking the user: "Which epic does `<branch>` correspond to? Reply with the issue number." Remember the mapping if useful, but never bake it into the plugin.
   - `gh issue list --repo "$REPO" --state open --search "in:body Parent: #<parent>"` — list open sub-issues.
@@ -45,7 +45,7 @@ Spec existence was checked by precompute (step 1). Apply:
 - **None found** → spec path is `<SPEC_DIR>/$(date +%Y-%m-%d)-<slug>.md` (date is today).
 - **Found at `<found-path>`** → prompt user: "(a) continue editing, (b) overwrite, (c) cancel". Act per choice. If `continue`, use `<found-path>` as the spec path (don't re-date).
 
-Do NOT pre-create labels (`gh label create designed` etc.) — the standard label set is bootstrapped at repo setup. If a label is genuinely missing, surface the gap to the user; don't silently create.
+Do NOT pre-create labels — the standard label set is bootstrapped at repo setup. If a label is genuinely missing, surface the gap to the user; don't silently create.
 
 ## Step 4: Invoke brainstorming
 
@@ -60,7 +60,7 @@ Use the `superpowers:brainstorming` skill. Seed it with:
 - Issue title: `<title>`
 - Issue body: full body fetched in step 1
 - **Cross-repo PRD body (if any):** `$PRD_BODY`
-- Current state: stage, parent, slug
+- Current state: project status, parent, slug
 
 The brainstorming skill drives the discussion. Follow its instructions.
 
@@ -94,7 +94,7 @@ fi
 sillok_project_status_set "$ITEM_ID" design
 ```
 
-The old stage label flip (`todo → designed`) is removed — stage now lives in the project's Status field.
+Stage is managed via the project's Status field — no label flipping.
 
 ## Step 8: Update issue body — paste spec inline
 
