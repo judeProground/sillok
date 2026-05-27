@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # sillok — precompute deterministic state for /sillok-design.
 # Outputs current branch + mode (single-issue / umbrella / other), issue
-# metadata, current stage label, spec existence, and a CWD warning if the
+# metadata, project status, spec existence, and a CWD warning if the
 # session is not actually inside the expected worktree (common after session
 # resume — git/gh work fine but file paths break silently).
 set -euo pipefail

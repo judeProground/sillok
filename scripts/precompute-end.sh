@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # sillok — precompute deterministic state for /sillok-end.
-# Outputs branch + mode + issue meta + stage + plan stats (task completion)
+# Outputs branch + mode + issue meta + project status + plan stats (task completion)
 # + existing PR + parent reference + CWD check.
 set -euo pipefail
 

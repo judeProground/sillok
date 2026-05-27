@@ -6,7 +6,7 @@ You are running the `/sillok-end` slash command for the the configured GitHub re
 
 ## Step 1: Mode detection + state derivation
 
-Run the precompute script. It outputs branch + mode + active issue meta + stage + plan path + plan task completion stats + existing PR + parent reference + dirty working tree + CWD check in one shot:
+Run the precompute script. It outputs branch + mode + active issue meta + project status + plan path + plan task completion stats + existing PR + parent reference + dirty working tree + CWD check in one shot:
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/precompute-end.sh

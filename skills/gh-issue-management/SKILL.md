@@ -257,7 +257,7 @@ Each flow has the same shape: When → Steps → Done state.
 
 ## Common mistakes
 
-- Manually flipping stage labels — stages live in project status now. Use the Status field via `sillok_project_status_set` instead.
+- Manually changing project status outside sillok commands — use `sillok_project_status_set` or let the commands handle it.
 - Forgetting to register the linked branch — the Development panel stays empty until `createLinkedBranch` runs.
 - Using task-list syntax (`- [ ] #N`) in the parent body alongside the GraphQL sub-issue mutation — pick one (GraphQL is the new way)
 - Mid-session triage of a discovered bug — file and move on
