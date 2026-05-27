@@ -145,9 +145,9 @@ docs/<path>.md
 
 <full spec content pasted inline here>
 
-## Plan link                 <!-- filled by /sillok-execute -->
+## Plan                      <!-- filled by /sillok-execute -->
 
-docs/superpowers/plans/<date>-<slug>.md
+Plan written.
 
 ## PR link                   <!-- filled by /sillok-end -->
 

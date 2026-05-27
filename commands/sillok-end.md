@@ -84,8 +84,6 @@ Use the `superpowers:finishing-a-development-branch` skill for the merge/PR deci
 
 ## Step 5: Compute PR body
 
-> `<SPEC_DIR>` and `<PLAN_DIR>` below resolve to the values of `docs.specs` and `docs.plans` in `.claude/sillok/workflow.config.json` (defaults `docs/superpowers/specs` and `docs/superpowers/plans`).
-
 Construct the PR body per `pr-convention.md`. Use a heredoc:
 
 ```bash
@@ -98,20 +96,14 @@ Closes #<N>
 
 <2-3 lines describing the work. THIS BECOMES THE SQUASH COMMIT MESSAGE WHEN MERGED, AND ALSO SERVES AS THE DONE-NOTE FOR THE CLOSED ISSUE. No separate post-merge comment needed.>
 
-## Design
-
-<SPEC_DIR>/<date>-<slug>.md
-
-## Plan
-
-<PLAN_DIR>/<date>-<slug>.md
-
 ## Test plan
 
 - [ ] <manual test items derived from the spec's acceptance criteria>
 EOF
 )
 ```
+
+Spec is in the issue body (linked via `Closes #N`). Spec/plan file paths are not referenced — they are local working artifacts, not committed.
 
 The Summary section is critical:
 

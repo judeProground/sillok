@@ -19,20 +19,14 @@ Closes #N
 
 ## Summary
 
-<2-3 lines on what and why>
-
-## Design
-
-<docs.specs>/<date>-<slug>.md
-
-## Plan
-
-<docs.plans>/<date>-<slug>.md
+<2-3 lines on what and why. This becomes the squash commit message AND the done-note on the closed issue.>
 
 ## Test plan
 
 - [ ] ...
 ```
+
+Spec is in the issue body (linked via `Closes #N`). No need to reference spec/plan file paths — they are local working artifacts, not committed.
 
 ### `Closes #N` is mandatory
 

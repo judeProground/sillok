@@ -60,7 +60,7 @@ Invoke the `superpowers:writing-plans` skill with the spec path as input.
 After the plan is written and writing-plans hands off to subagent-driven-development:
 
 - The plan file is at `<PLAN_DIR>/<today-date>-<slug>.md`.
-- Update issue body to add `## Plan link\n\n<PLAN_DIR>/<date>-<slug>.md` (fetch body, mutate, post back).
+- Update issue body to add `## Plan\n\nPlan written.` marker (fetch body, mutate, post back). The plan file is a local working artifact, not committed.
 - Set project status to `In Progress`:
 
   ```bash
@@ -109,6 +109,6 @@ Print summary:
 - Files changed: `git diff --stat <base-sha> HEAD`
 - Final whole-branch review state: clean / had-blockers (note iteration count if multiple)
 - Project status confirmed `In Progress`
-- Issue body updated with Plan link
+- Issue body updated with Plan marker
 
 Handoff: "Next: `/sillok-end` to push the branch and open the PR."
