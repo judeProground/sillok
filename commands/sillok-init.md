@@ -65,6 +65,30 @@ else
 fi
 ```
 
+## Step 2a-2: Auto-detect project
+
+```bash
+PROJ_OWNER="${REPO%%/*}"
+PROJ_NUM=0
+PROJ_TITLE=""
+
+# Try listing projects for the repo owner (works for both org and user)
+proj_json=$(gh project list --owner "$PROJ_OWNER" --format json 2>/dev/null || echo '{"projects":[]}')
+proj_count=$(echo "$proj_json" | jq '.projects | length')
+
+if [[ "$proj_count" == "1" ]]; then
+  PROJ_NUM=$(echo "$proj_json" | jq -r '.projects[0].number')
+  PROJ_TITLE=$(echo "$proj_json" | jq -r '.projects[0].title')
+  echo "[sillok-init] Auto-detected project: $PROJ_TITLE (#$PROJ_NUM)"
+elif [[ "$proj_count" -gt 1 ]]; then
+  echo "[sillok-init] Multiple projects found for $PROJ_OWNER:"
+  echo "$proj_json" | jq -r '.projects[] | "  \(.number)) \(.title)"'
+  echo "[sillok-init] Set project.owner and project.number in workflow.config.json manually."
+else
+  echo "[sillok-init] No projects found for $PROJ_OWNER — set project.* manually if needed."
+fi
+```
+
 ## Step 2b: Verify org Issue Types
 
 If `$ORG_MODE` is `false`, skip this step entirely (Issue Types are org-only):
@@ -180,6 +204,8 @@ else
     --arg typecheck "$typecheck" \
     --arg format "$format" \
     --argjson orgMode "$ORG_MODE" \
+    --arg projOwner "$PROJ_OWNER" \
+    --argjson projNum "$PROJ_NUM" \
     '{
       "$schema": "https://raw.githubusercontent.com/judeProground/sillok/main/schema/v1.json",
       "version": 1,
@@ -189,8 +215,8 @@ else
       "prdRepo": "",
       "orgMode": $orgMode,
       "project": {
-        "owner": "",
-        "number": 0,
+        "owner": $projOwner,
+        "number": $projNum,
         "statusField": "Status",
         "statuses": {
           "todo": "Todo",
