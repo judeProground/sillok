@@ -6,6 +6,16 @@ You are running `/sillok-story`.
 
 A **story** in sillok is a parent tracking issue PLUS a real integration branch (`story/issue-<N>-<slug>`) PLUS a worktree. Sub-features under the story cut from and PR back to this integration branch. The story itself eventually PRs to the configured `baseBranch` (usually `main`) with a merge commit (NOT squash), so sub-feature commits remain visible in the base-branch history.
 
+## Language
+
+Read the `language` value from config (`sillok_config language`).
+
+- `auto` → write all generated content (issue body) in the same language as the current conversation session.
+- `ko` → write all generated content in Korean.
+- `en` → write all generated content in English.
+
+Section headers (`## Summary`, `## Integration branch`, etc.) and GitHub API field names stay in English regardless of language setting — only prose content follows the language preference.
+
 ## Step 1: Detect context
 
 Run:

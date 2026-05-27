@@ -30,6 +30,16 @@ If the output contains `ABORT:` (you're already on a branch matching the configu
 
 Umbrella branches (`feature/<name>`) are OK as starting points — `/sillok-start` from any umbrella branch is supported, and the new sub-issue's branch will still be cut from `origin/<baseBranch>` (configured), not from the umbrella.
 
+## Language
+
+Read the `### Language` section from the precompute output (step 2).
+
+- `auto` → write all generated content (issue body, commit summary) in the same language as the current conversation session.
+- `ko` → write all generated content in Korean.
+- `en` → write all generated content in English.
+
+Section headers (`## Summary`, `## Design`, `Parent:` etc.) and GitHub API field names stay in English regardless of language setting — only prose content follows the language preference.
+
 ## Step 3: PRD intake
 
 **If `[prd-path]` provided:**

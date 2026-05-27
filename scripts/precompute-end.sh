@@ -193,4 +193,10 @@ if command -v sillok_project_item_for_issue >/dev/null 2>&1; then
   fi
 fi
 
+# Language preference
+echo
+echo "### Language"
+LANG_PREF=$(sillok_config language)
+echo "- Config: \`${LANG_PREF:-auto}\`"
+
 exit 0
