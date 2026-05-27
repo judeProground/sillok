@@ -48,24 +48,37 @@ fi
 echo
 echo "### Open epics"
 
-# Local-repo stories (formerly epics). Still relevant for in-repo composite work.
-local_stories=$(gh api graphql -H "X-GitHub-Api-Version: 2026-03-10" \
-  -f query="{ repository(owner: \"${REPO%%/*}\", name: \"${REPO##*/}\") {
-    issues(first: 20, states: OPEN, filterBy: {issueType: \"Story\"}) {
-      nodes { number title }
-    }
-  } }" --jq '.data.repository.issues.nodes[]? | "  - (in this repo) #\(.number) \(.title)"' 2>/dev/null || echo "")
+# Local-repo stories/epics (for parent suggestion).
+# orgMode=true: query by Issue Type. orgMode=false: query by label fallback.
+ORG_MODE=$(sillok_config orgMode)
+if [[ "$ORG_MODE" == "true" ]]; then
+  local_stories=$(gh api graphql -H "X-GitHub-Api-Version: 2026-03-10" \
+    -f query="{ repository(owner: \"${REPO%%/*}\", name: \"${REPO##*/}\") {
+      issues(first: 20, states: OPEN, filterBy: {issueType: \"Story\"}) {
+        nodes { number title }
+      }
+    } }" --jq '.data.repository.issues.nodes[]? | "  - (in this repo) #\(.number) [Story] \(.title)"' 2>/dev/null || echo "")
+else
+  # User repo: Issue Types unavailable. Fall back to label-based query.
+  local_stories=$(gh issue list --repo "$REPO" --label story --state open --limit 20 --json number,title \
+    --jq '.[]? | "  - (in this repo) #\(.number) [story] \(.title)"' 2>/dev/null || echo "")
+fi
 
 # Cross-repo PRD epics from prdRepo, if configured.
 PRD_REPO=$(sillok_config prdRepo)
 prd_epics=""
 if [[ -n "$PRD_REPO" ]]; then
-  prd_epics=$(gh api graphql -H "X-GitHub-Api-Version: 2026-03-10" \
-    -f query="{ repository(owner: \"${PRD_REPO%%/*}\", name: \"${PRD_REPO##*/}\") {
-      issues(first: 20, states: OPEN, filterBy: {issueType: \"Epic\"}) {
-        nodes { number title }
-      }
-    } }" --jq ".data.repository.issues.nodes[]? | \"  - (in $PRD_REPO) #\(.number) \(.title)\"" 2>/dev/null || echo "")
+  if [[ "$ORG_MODE" == "true" ]]; then
+    prd_epics=$(gh api graphql -H "X-GitHub-Api-Version: 2026-03-10" \
+      -f query="{ repository(owner: \"${PRD_REPO%%/*}\", name: \"${PRD_REPO##*/}\") {
+        issues(first: 20, states: OPEN, filterBy: {issueType: \"Epic\"}) {
+          nodes { number title }
+        }
+      } }" --jq ".data.repository.issues.nodes[]? | \"  - (in $PRD_REPO) #\(.number) [Epic] \(.title)\"" 2>/dev/null || echo "")
+  else
+    prd_epics=$(gh issue list --repo "$PRD_REPO" --label epic --state open --limit 20 --json number,title \
+      --jq ".[]? | \"  - (in $PRD_REPO) #\(.number) [epic] \(.title)\"" 2>/dev/null || echo "")
+  fi
 fi
 
 if [[ -z "$local_stories" && -z "$prd_epics" ]]; then
