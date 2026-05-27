@@ -137,6 +137,10 @@ Parent: #<M>            <!-- omit line if standalone -->
 
 <1–2 sentences describing intent>
 
+## Key decisions            <!-- filled by /sillok-design step 7.5; always present, may be empty -->
+
+- **<decision>** — <reason>
+
 ## PRD link                  <!-- omit section if no PRD -->
 
 docs/<path>.md

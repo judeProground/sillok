@@ -106,6 +106,36 @@ sillok_project_status_set "$ITEM_ID" design
 
 Stage is managed via the project's Status field — no label flipping.
 
+## Step 7.5: Extract key decisions
+
+After the spec is confirmed (step 6) and project status is set (step 7), extract key decisions from the brainstorming conversation and the spec content before updating the issue body.
+
+A "key decision" is a choice where:
+- 2+ viable options existed
+- One was picked
+- A future reader would ask "why not the other way?"
+
+If no such choices exist (simple bug fix, mechanical change), produce an empty list — the `## Key decisions` section will still appear in the issue body, just with no bullets.
+
+Draft 2-5 bullet points:
+
+```
+- **<What was decided>** — <Why. What was the alternative and why it wasn't picked. One sentence.>
+```
+
+Rules:
+1. Extract from the brainstorming conversation context, not just the spec text. If the spec already existed (no brainstorming), extract from the spec content.
+2. Use the same terms the user used. Do not elevate to abstract patterns or jargon.
+3. Each bullet must be self-contained — readable without the full spec.
+4. Prefer fewer strong bullets over many weak ones. 2 strong > 5 weak.
+5. Implementation details are not decisions. "Used jq" is not a decision. "Labels instead of Issue Types for user repos — because the API silently fails" is a decision.
+
+Present to the user separately from the spec review:
+
+"Key decisions for the issue body — edit or confirm:"
+
+Iterate until user confirms. Store as `$key_decisions` for step 8.
+
 ## Step 8: Update issue body — paste spec inline
 
 The spec file is the **authoring artifact**. The issue body is **canonical** — anyone reading the issue on GitHub must see the full design without checking out the repo.
@@ -116,7 +146,7 @@ Read the locked spec file:
 spec_content=$(cat <SPEC_DIR>/<date>-<slug>.md)
 ```
 
-Reconstruct the issue body in the conventional section order (per `gh-issue-conventions.md`: Parent → Summary → PRD link → **Design (inline content)** → Plan link → PR link → Done note). Preserve the existing Parent / Summary / PRD link sections from the body fetched in step 1; replace or insert the `## Design` section with the full spec content.
+Reconstruct the issue body in the conventional section order (per `gh-issue-conventions.md`: Parent → Summary → **Key decisions** → PRD link → **Design (inline content)** → Plan link → PR link → Done note). Preserve the existing Parent / Summary / PRD link sections from the body fetched in step 1; insert `## Key decisions` from step 7.5; replace or insert the `## Design` section with the full spec content.
 
 Post the new body via stdin (`-F -`) to avoid quoting headaches with backticks, dollar signs, and code blocks inside the spec:
 
@@ -127,6 +157,10 @@ gh issue edit <N> -F - <<EOF
 ## Summary
 
 <preserved summary>
+
+## Key decisions
+
+$key_decisions
 
 ## PRD link
 
