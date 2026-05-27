@@ -48,7 +48,7 @@ When adding a config key: update `schema/v1.json` AND `templates/workflow.config
 
 ### Branch-prefix templating
 
-`branchPrefix` is a template, not a literal. `sillok_branch_prefix_resolve <type> [user]` substitutes `{type}` and `{user}` placeholders to produce concrete prefixes (`feature/issue-`, `bug/issue-`, `story/issue-`, etc.). `sillok_branch_prefix_regex` builds the inverse — a regex with a `(feature|bug|...)` alternation, used by precompute scripts to parse branch names back into issue numbers.
+`branchPrefix` is a template, not a literal. `sillok_branch_prefix_resolve <type> [user]` substitutes `{type}` and `{user}` placeholders to produce concrete prefixes (`feature/issue-`, `refactor/issue-`, `story/issue-`, etc.). `sillok_branch_prefix_regex` builds the inverse — a regex with a `(feature|bug|...|refactor|story)` alternation, used by precompute scripts to parse branch names back into issue numbers.
 
 When walking `BASH_REMATCH` after that regex: the `{type}` alternation injects a capture group BEFORE the issue number, so loop over `BASH_REMATCH[@]:1` and grab the first numeric capture as the issue number — don't hardcode indices. See the loop in `scripts/precompute-end.sh:46-65`.
 
@@ -84,6 +84,24 @@ The `sillok-shim: true` frontmatter marker identifies sillok-managed shims for i
 `/sillok-init` Step 8b scans the project across five layout families (FSD `src/{entities,features,widgets,pages,slices,modules}/<name>/`, `app/<route>/`, `modules/<name>/`, `packages/<name>/`, `apps/<name>/`) and auto-picks slice candidates for `area:<name>` GitHub labels (filter: rank ≥ 2 AND top 15). Existing non-empty `labels.areas` in config is preserved on re-init.
 
 Detection runs in `scripts/detect-slices.sh`; the rank-filter lives in `scripts/pick-areas.sh` (NOT inline awk in the spec). Reason: agent-readers of markdown specs strip bare `$1` / `$2` tokens in inline code blocks, corrupting any inline awk filter into `'... >= 2 { print }'`. Keep `$N`-using awk inside scripts that the agent calls, not reads. See #11 for the bug that surfaced this.
+
+## Script index
+
+| Script | Purpose |
+|--------|---------|
+| `precompute-{start,design,execute,end}.sh` | State derivation for each slash command |
+| `setup-feature-worktree.sh` | Creates worktree + branch for a new issue |
+| `bootstrap-labels.sh` | Idempotent GitHub label creation |
+| `detect-slices.sh` | Scans project structure for area-label candidates |
+| `detect-stack.sh` | Detects project tech stack (language, framework) |
+| `pick-areas.sh` | Rank-filters slice candidates (top 15, rank ≥ 2) |
+| `slug-from-title.sh` | Converts issue title → kebab-case branch slug |
+| `write-shim-commands.sh` | Writes shortcut command shims during init |
+| `lib/config.sh` | Shared config reader (sourced by all other scripts) |
+
+## Testing
+
+Tests live in `tests/*.test.sh`. Each test is a standalone bash script that creates a temp directory, exercises one script, and prints `pass`/`fail` lines. To add a new test: create `tests/<script-name>.test.sh`, define `pass()`/`fail()` helpers, and follow the existing pattern of setting up a temp project with `CLAUDE_PLUGIN_ROOT` pointing at the repo root.
 
 ## Bash conventions
 

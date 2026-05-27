@@ -6,6 +6,8 @@
   "baseBranch": "main",
   "branchPrefix": "{type}/issue-",
 
+  "language": "auto",
+
   "prdRepo": "",
 
   "orgMode": false,

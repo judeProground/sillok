@@ -52,6 +52,16 @@ fi
 
 For story-finalize mode, `PR_BASE=$(sillok_config baseBranch)` directly — no parent lookup.
 
+## Language
+
+Read the `### Language` section from the precompute output (step 1).
+
+- `auto` → write all generated content (PR body summary) in the same language as the current conversation session.
+- `ko` → write all generated content in Korean.
+- `en` → write all generated content in English.
+
+Section headers (`## Summary`, `## Design`, `Closes #N` etc.) and GitHub API field names stay in English regardless of language setting — only prose content follows the language preference.
+
 ## Step 2: Pre-conditions
 
 All checks below were already performed by precompute (step 1). Apply the results:

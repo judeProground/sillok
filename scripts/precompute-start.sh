@@ -112,4 +112,10 @@ else
   echo "- Exists in repo: no (prompt user to create)"
 fi
 
+# Language preference
+echo
+echo "### Language"
+LANG_PREF=$(sillok_config language)
+echo "- Config: \`${LANG_PREF:-auto}\`"
+
 exit 0

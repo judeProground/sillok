@@ -255,6 +255,16 @@ Each flow has the same shape: When → Steps → Done state.
 - `.claude/rules/pr-convention.md` — PR title/body/squash-merge rules
 - `.claude/rules/commit-conventions.md` — `<type>(<scope>): <subject> (#N)` format
 
+## Language
+
+The `language` config key (`sillok_config language`) controls the language of generated prose in issue/PR bodies and specs:
+
+- `auto` (default): match the session language — if the user is speaking Korean, write Korean; if English, write English.
+- `ko`: always write in Korean.
+- `en`: always write in English.
+
+Structural markers (section headers like `## Summary`, `## Design`, the `Parent:` line, label names, branch names) are always English regardless of this setting. Only prose content (descriptions, summaries, acceptance criteria text) follows the language preference.
+
 ## Common mistakes
 
 - Manually changing project status outside sillok commands — use `sillok_project_status_set` or let the commands handle it.

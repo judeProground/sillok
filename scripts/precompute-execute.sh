@@ -121,4 +121,10 @@ else
   echo "- ⚠️  Branch \`$branch\` does not match the configured branch prefix or \`feature/...\` — workflow not applicable; abort."
 fi
 
+# Language preference
+echo
+echo "### Language"
+LANG_PREF=$(sillok_config language)
+echo "- Config: \`${LANG_PREF:-auto}\`"
+
 exit 0

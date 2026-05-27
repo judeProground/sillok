@@ -26,6 +26,16 @@ Read the markdown block. Show it back to the user as the current state summary.
   - Re-run precompute conceptually for that `<N>` (or just fetch issue metadata directly), and derive slug = title-slug from `/sillok-start` step 9 (run `bash ${CLAUDE_PLUGIN_ROOT}/scripts/slug-from-title.sh <N> "<title>"`).
 - **Other branch**: ABORT — workflow not applicable.
 
+## Language
+
+Read the `### Language` section from the precompute output (step 1).
+
+- `auto` → write all generated content (spec, issue body) in the same language as the current conversation session.
+- `ko` → write all generated content in Korean.
+- `en` → write all generated content in English.
+
+Section headers (`## Summary`, `## Design`, `Parent:` etc.) and GitHub API field names stay in English regardless of language setting — only prose content follows the language preference.
+
 ## Step 2: Pre-condition
 
 Project status was extracted by precompute (step 1, `### Project status` section). Apply:
