@@ -6,6 +6,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.0.3] — 2026-05-27
+
+### Fixed
+- Removed legacy v1 stage label references from runtime files. Pipeline descriptions in `sillok-workflow.md` now show project status transitions (`Todo→In Design→In Progress→In QA`). Precompute script comments, command descriptions, and `gh-issue-management` skill updated accordingly.
+
 ## [2.0.0] — 2026-05-22
 
 ### Breaking

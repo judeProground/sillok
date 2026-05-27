@@ -8,7 +8,7 @@
     {
       "name": "sillok",
       "description": "Spec-driven feature chronicle, tracked by GitHub issues.",
-      "version": "2.0.2",
+      "version": "2.0.3",
       "source": "./",
       "author": {
         "name": "judeProground"
