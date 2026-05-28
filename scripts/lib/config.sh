@@ -52,12 +52,16 @@ sillok_config() {
 
 sillok_config_array() {
   local key="$1"
-  local project default
+  local project default output
   project=$(_sillok_project_config)
   default=$(_sillok_default_config)
 
   if [[ -n "$project" ]]; then
-    jq -r --arg k "$key" 'getpath($k | split(".")) // [] | .[]' "$project" 2>/dev/null && return 0
+    output=$(jq -r --arg k "$key" 'getpath($k | split(".")) // [] | .[]' "$project" 2>/dev/null) || true
+    if [[ -n "$output" ]]; then
+      printf '%s\n' "$output"
+      return 0
+    fi
   fi
   if [[ -f "$default" ]]; then
     jq -r --arg k "$key" 'getpath($k | split(".")) // [] | .[]' "$default"

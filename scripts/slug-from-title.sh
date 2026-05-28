@@ -4,6 +4,12 @@
 # gh-issue-conventions.md (in .claude/sillok/rules/) (lowercase, articles stripped, non-alphanum runs to
 # single hyphens, trimmed, ≤40 chars truncated at last hyphen).
 #
+# Branch/worktree names are kept ASCII by design (clean URLs, broad tool
+# support). This script only normalizes ASCII; non-English titles (e.g.
+# Korean) must be translated to an English phrase by the CALLER before being
+# passed in — the command layer does that. If a non-ASCII title slips through,
+# the alnum filter strips it and the empty-slug guard falls back to `issue-<N>`.
+#
 # usage: slug-from-title.sh <issue_num> <title...>
 #
 # Examples:
@@ -41,6 +47,13 @@ if [[ ${#slug} -gt 40 ]]; then
   if [[ "$slug" == *-* ]]; then
     slug="${slug%-*}"
   fi
+fi
+
+# 6. Empty-slug guard: a title of only articles, punctuation, or non-ASCII
+# characters reduces to "". Fall back to a stable, meaningful slug instead of
+# emitting a trailing-hyphen branch like "issue-42-".
+if [[ -z "$slug" ]]; then
+  slug="issue-${n}"
 fi
 
 echo "${n}-${slug}"

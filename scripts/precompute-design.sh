@@ -35,7 +35,7 @@ echo "- Current branch: \`$branch\`"
 # CWD vs worktree check — git itself works from any worktree dir, but issue/spec
 # file paths are relative to the worktree root, so the LLM must cd in first.
 expected_worktree=$(git worktree list --porcelain 2>/dev/null \
-  | awk -v b="refs/heads/$branch" '/^worktree/{wt=$2} /^branch/{if($2==b){print wt; exit}}')
+  | awk -v b="refs/heads/$branch" '/^worktree /{sub(/^worktree /, ""); wt=$0} /^branch /{if($2==b){print wt; exit}}')
 current_pwd=$(pwd)
 if [[ -n "$expected_worktree" && "$current_pwd" != "$expected_worktree" ]]; then
   echo "- ⚠️  CWD MISMATCH: pwd=\`$current_pwd\`, expected=\`$expected_worktree\`"
@@ -76,10 +76,11 @@ if [[ -n "$prefix_regex" && "$branch" =~ ^${prefix_regex}([0-9]+)-(.+)$ ]]; then
     issue_body=""
   fi
 
-  # Spec existence — slug-only glob (any earlier date matches)
+  # Spec existence — slug-only glob; pick the latest by date prefix so this
+  # agrees with precompute-execute.sh when a spec was rewritten on a later date.
   echo
   echo "### Spec existence"
-  spec_match=$(ls "$SPEC_DIR"/*-"$slug".md 2>/dev/null | head -1 || true)
+  spec_match=$(ls "$SPEC_DIR"/*-"$slug".md 2>/dev/null | sort | tail -1 || true)
   if [[ -n "$spec_match" ]]; then
     echo "- Found: \`$spec_match\` — prompt user: continue / overwrite / cancel"
   else

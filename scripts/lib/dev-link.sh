@@ -4,9 +4,9 @@
 # panel shows linked branches (not just PRs).
 set -euo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+_SILLOK_LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=config.sh
-source "$SCRIPT_DIR/config.sh"
+source "$_SILLOK_LIB_DIR/config.sh"
 
 # Get the GraphQL node ID for an issue.
 # Usage: sillok_issue_node_id <repo> <issue-N>

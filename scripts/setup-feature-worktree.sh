@@ -33,11 +33,14 @@ worktree="$WORKTREE_DIR/$slug"
 git fetch origin "$BASE_BRANCH"
 git worktree add "$worktree" -b "$branch" "origin/$BASE_BRANCH"
 
-# Copy configured gitignored files into the new worktree.
+# Copy configured gitignored files into the new worktree, preserving relative
+# directory structure (e.g. "config/.env" → "$worktree/config/.env").
 while IFS= read -r f; do
   [[ -z "$f" ]] && continue
   if [[ -f "$f" ]]; then
-    cp "$f" "$worktree/"
+    target_dir="$worktree/$(dirname "$f")"
+    mkdir -p "$target_dir"
+    cp "$f" "$target_dir/"
   else
     echo "[setup-feature-worktree] WARN: '$f' not found in main worktree" >&2
   fi

@@ -101,10 +101,12 @@ Used when the user is on `main`, an unrelated branch, or a fresh worktree.
 
    Capture `<N>` from the URL (`${issue_url##*/}`).
 
-5. Compute slug:
+5. Compute slug. Branch/worktree names stay ASCII/English even when the story title is Korean (or any non-English language). **If `<title>` is not already English**, translate it into a concise English phrase (3–6 words) first and pass THAT — not the original title — as the slug argument. The issue keeps its original-language title.
 
    ```bash
-   slug_full=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/slug-from-title.sh" "$N" "<title>")
+   # <slug-title> = English phrase (== title if already English).
+   # e.g. "결제 모듈 리팩터링" → "refactor payment module"
+   slug_full=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/slug-from-title.sh" "$N" "<slug-title>")
    # Output is "<N>-<title-slug>"; strip the leading "<N>-" to get just the title slug
    slug_without_n="${slug_full#${N}-}"
    ```

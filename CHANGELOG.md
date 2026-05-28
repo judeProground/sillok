@@ -6,6 +6,26 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.2.1] — 2026-05-28
+
+### Fixed
+- **`sillok_config_array` fallback broken when project config lacks an array key.** A `jq` empty result exited 0, triggering an early `return` that skipped the template default. Minimal consumer configs silently got empty arrays for `types.list`, `labels.natures`, etc. Now captures output and falls through when empty.
+- **Projects v2 `EXCESSIVE_PAGINATION` error.** `sillok_project_item_for_issue` requested `items(first: 200)` (GraphQL caps `first` at 100). Rewritten to query from the issue side (`issue → projectItems`), so it works regardless of project size.
+- **`SCRIPT_DIR` shadowing in lib modules.** `lib/project.sh`, `lib/issue-types.sh`, `lib/dev-link.sh` assigned `SCRIPT_DIR` at global scope, overwriting the caller's value — which broke `migrate-v1-to-v2.sh`'s sequential `source` chain. Renamed to module-scoped `_SILLOK_LIB_DIR`.
+- **Worktree path with spaces.** The CWD-vs-worktree check in `precompute-{design,execute,end}.sh` parsed `git worktree list --porcelain` with `awk '{wt=$2}'`, truncating paths at the first space. Now strips the `worktree ` prefix to capture the full path.
+- **Precompute abort on transient project-API failure.** `sillok_project_item_for_issue` calls in `precompute-{execute,end}.sh` lacked `|| echo ""`, so a network error aborted the whole precompute under `set -e`. Guarded.
+- **Empty branch slug.** `slug-from-title.sh` emitted `<N>-` (trailing hyphen) for titles of only articles, punctuation, or non-ASCII characters. Now falls back to `issue-<N>`.
+- **Non-English branch/worktree slugs.** Branch and worktree names are now kept ASCII/English even when the issue title is Korean (or any non-English language) — `/sillok-start` and `/sillok-story` translate the title to a concise English phrase for the slug, while the issue keeps its original-language title.
+- **`worktree.copyFiles` flattened nested paths.** A configured `config/.env` was copied to the worktree root. Now preserves relative directory structure.
+- **Spec match divergence.** `precompute-design.sh` used `head -1` (earliest) while `precompute-execute.sh` used `sort | tail -1` (latest) — they could resolve to different specs when one was rewritten on a later date. Both now pick the latest.
+- **`migrate-v1-to-v2.sh` silent truncation.** Warns when the 500-issue fetch cap is hit so older issues aren't silently skipped.
+
+### Added
+- **Key Decisions section in issue body (#27)** — `/sillok-design` records key decisions inline.
+- **Deviations and Review fixes sections in PR body (#29).**
+- **`/sillok-design` support for Story issues (#30)** — umbrella story design mode.
+- **Spec/plan files gitignored (#28)** — local working artifacts excluded; path references removed from issue/PR bodies (the issue body is the canonical record).
+
 ## [2.2.0] — 2026-05-27
 
 ### Added

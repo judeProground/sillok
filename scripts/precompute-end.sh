@@ -32,7 +32,7 @@ echo "- Current branch: \`$branch\`"
 
 # CWD vs worktree check
 expected_worktree=$(git worktree list --porcelain 2>/dev/null \
-  | awk -v b="refs/heads/$branch" '/^worktree/{wt=$2} /^branch/{if($2==b){print wt; exit}}')
+  | awk -v b="refs/heads/$branch" '/^worktree /{sub(/^worktree /, ""); wt=$0} /^branch /{if($2==b){print wt; exit}}')
 current_pwd=$(pwd)
 if [[ -n "$expected_worktree" && "$current_pwd" != "$expected_worktree" ]]; then
   echo "- ⚠️  CWD MISMATCH: pwd=\`$current_pwd\`, expected=\`$expected_worktree\`"
@@ -184,7 +184,7 @@ echo "### Project status"
 source "${SCRIPT_DIR}/lib/project.sh" 2>/dev/null || true
 if command -v sillok_project_item_for_issue >/dev/null 2>&1; then
   if [[ -n "${n:-}" ]]; then
-    item_id=$(sillok_project_item_for_issue "https://github.com/$REPO/issues/$n")
+    item_id=$(sillok_project_item_for_issue "https://github.com/$REPO/issues/$n" || echo "")
     if [[ -n "$item_id" ]]; then
       status=$(sillok_project_status_get "$item_id" || echo "")
       echo "- Item ID: $item_id"

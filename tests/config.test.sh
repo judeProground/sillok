@@ -77,6 +77,24 @@ JSON
 rm -rf "$TMPDIR_PROJECT"
 pass "project config overrides plugin default"
 
+echo "test: array key absent in project config falls back to template default"
+TMPDIR_ARRFALL=$(mktemp -d)
+(
+  cd "$TMPDIR_ARRFALL"
+  git init -q
+  mkdir -p .claude/sillok
+  # Minimal project config — has scalars but NO labels.natures array.
+  cat > .claude/sillok/workflow.config.json <<JSON
+{ "version": 1, "repo": "x/y", "baseBranch": "main" }
+JSON
+  natures=()
+  while IFS= read -r line; do natures+=("$line"); done < <(sillok_config_array labels.natures)
+  [[ "${#natures[@]}" == "6" ]] || { echo "FAIL: expected 6 natures from template fallback, got ${#natures[@]}"; exit 1; }
+  [[ "${natures[0]}" == "improvement" ]] || { echo "FAIL: expected 'improvement', got '${natures[0]}'"; exit 1; }
+)
+rm -rf "$TMPDIR_ARRFALL"
+pass "missing array key in project config → template default (not empty)"
+
 echo "test: sillok_branch_prefix_resolve substitutes {type}"
 TMPDIR_RESOLVE=$(mktemp -d)
 (

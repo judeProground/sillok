@@ -148,13 +148,17 @@ gh api graphql -f query="mutation { addSubIssue(input: { issueId: \"$PARENT_ID\"
 
 ## Step 9: Compute slug and branch
 
-Run the slug script with the new issue number and the confirmed title:
+Branch and worktree names are kept **ASCII/English regardless of the issue language** — the issue title/body may be Korean (or any language), but the branch stays English for clean URLs and broad tool compatibility.
+
+**If the confirmed title is not already English** (contains Hangul/CJK/other non-ASCII letters), first translate it into a concise English phrase (3–6 words capturing the feature), then pass that English phrase — NOT the original title — to the slug script. The issue keeps its original-language title; only the slug argument is the English rendering.
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/slug-from-title.sh <N> "<title>"
+# <slug-title> = the English phrase. For an already-English title, it IS the title.
+# e.g. "녹음 버튼에 햅틱 피드백 추가" → "add haptic feedback to record button"
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/slug-from-title.sh <N> "<slug-title>"
 ```
 
-The script outputs `<N>-<title-slug>` (e.g. `79-add-haptic-feedback-to-record-button`). The title-slug is lowercased, has articles (`a`/`an`/`the`) and non-alphanumeric runs collapsed to hyphens, and is truncated to ≤40 chars at the last hyphen. Capture the output as `<slug>`.
+The script outputs `<N>-<title-slug>` (e.g. `79-add-haptic-feedback-to-record-button`). The title-slug is lowercased, has articles (`a`/`an`/`the`) and non-alphanumeric runs collapsed to hyphens, and is truncated to ≤40 chars at the last hyphen. If the slug reduces to empty, the script falls back to `issue-<N>`. Capture the output as `<slug>`.
 
 **Resolve the templated branch prefix** before constructing the final branch name:
 

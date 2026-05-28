@@ -60,6 +60,12 @@ echo "Scanning open issues in $REPO..."
 # Use --state all to also re-tag closed historical issues if user wants
 issues=$(gh issue list --repo "$REPO" --state all --limit 500 --json number,labels)
 
+# Warn on truncation: hitting the 500 cap means older issues weren't fetched.
+if [[ "$(echo "$issues" | jq 'length')" -eq 500 ]]; then
+  echo "[warn] 500-issue fetch limit reached — older issues may not be migrated." >&2
+  echo "[warn] Re-run after closing/filtering, or migrate remaining issues manually." >&2
+fi
+
 count=0
 while IFS= read -r line; do
   num=$(echo "$line" | jq -r '.number')

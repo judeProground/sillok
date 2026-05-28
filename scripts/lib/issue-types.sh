@@ -8,9 +8,9 @@
 # sillok never calls those; admin sets up types out-of-band.
 set -euo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+_SILLOK_LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=config.sh
-source "$SCRIPT_DIR/config.sh"
+source "$_SILLOK_LIB_DIR/config.sh"
 
 # Cache for type IDs: avoids repeated API calls within one command run.
 _SILLOK_TYPE_ID_CACHE=""

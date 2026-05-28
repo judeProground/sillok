@@ -4,9 +4,9 @@
 # Status writes are idempotent at the GitHub level (re-setting same value = no-op).
 set -euo pipefail
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+_SILLOK_LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=config.sh
-source "$SCRIPT_DIR/config.sh"
+source "$_SILLOK_LIB_DIR/config.sh"
 
 _SILLOK_PROJECT_ID=""
 _SILLOK_FIELD_ID_CACHE=""
@@ -30,13 +30,14 @@ sillok_project_id() {
   printf '%s' "$_SILLOK_PROJECT_ID"
 }
 
-# Get the project item ID for a given issue URL (or content node id).
-# Returns empty if not found.
+# Get the project item ID for a given issue URL.
+# Queries from the issue side (issue → projectItems) instead of scanning the
+# full project items list, so it works regardless of project size.
+# Returns empty if the issue is not in the configured project.
 # Usage: sillok_project_item_for_issue <issue-url>
 sillok_project_item_for_issue() {
   local issue_url="$1"
   local owner repo issue_n
-  # Parse URL: https://github.com/<owner>/<repo>/issues/<N>
   if [[ "$issue_url" =~ github\.com/([^/]+)/([^/]+)/issues/([0-9]+) ]]; then
     owner="${BASH_REMATCH[1]}"
     repo="${BASH_REMATCH[2]}"
@@ -46,24 +47,19 @@ sillok_project_item_for_issue() {
     return 1
   fi
 
-  local project_owner project_number
-  project_owner=$(sillok_config project.owner)
-  project_number=$(sillok_config project.number)
+  local project_id
+  project_id=$(sillok_project_id) || return 1
 
-  # GraphQL: query the project's items, filter for matching content
   gh api graphql -f query="{
-    organization(login: \"$project_owner\") {
-      projectV2(number: $project_number) {
-        items(first: 200) {
-          nodes {
-            id
-            content { ... on Issue { number repository { name owner { login } } } }
-          }
+    repository(owner: \"$owner\", name: \"$repo\") {
+      issue(number: $issue_n) {
+        projectItems(first: 20) {
+          nodes { id project { id } }
         }
       }
     }
-  }" --jq ".data.organization.projectV2.items.nodes
-    | map(select(.content.number == $issue_n and .content.repository.owner.login == \"$owner\" and .content.repository.name == \"$repo\"))
+  }" --jq ".data.repository.issue.projectItems.nodes
+    | map(select(.project.id == \"$project_id\"))
     | .[0].id // empty"
 }
 
