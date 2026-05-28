@@ -18,9 +18,24 @@ Read the markdown block. Show it back to the user as the current state summary.
 
 **Mode-specific handling:**
 
-- **Single-issue mode**: precompute resolved `<N>`, `<slug>`, title, project status, and spec existence. Continue to step 2.
-- **Umbrella mode**: precompute can't resolve `<N>` alone (multiple sub-issues). Fetch active sub-issues and prompt:
-  - Map umbrella to its parent epic by asking the user: "Which epic does `<branch>` correspond to? Reply with the issue number." Remember the mapping if useful, but never bake it into the plugin.
+- **Single-issue mode**: precompute resolved `<N>`, `<slug>`, title, project status, and spec existence.
+  - **Story check:** if the resolved issue is a `Story` (org repo: Issue Type is `Story`; user repo: carries the `story` label — both surface in precompute's Labels line, or check `gh api -H "X-GitHub-Api-Version: 2026-03-10" "/repos/$REPO/issues/$N" --jq '.type.name'`), this is a **story branch**. Prompt:
+
+    ```
+    Story #<N> detected. What would you like to design?
+
+    (a) Design the story itself — brainstorm architecture, sub-issue breakdown, key decisions
+    (b) Design a sub-issue — pick from open sub-issues below
+
+    [list open sub-issues via gh api graphql subIssues, or "none yet"]
+    ```
+
+    - **(a)** → **Story-design mode** (see Step 4 story branch + Step 8 story branch). No spec file is created.
+    - **(b)** → fetch the chosen sub-issue's metadata, derive its slug (`bash ${CLAUDE_PLUGIN_ROOT}/scripts/slug-from-title.sh <sub-N> "<sub-title>"`), and proceed as ordinary single-issue mode against that sub-issue.
+
+  - Otherwise (Feature / Task / Bug): continue to step 2 as ordinary single-issue mode.
+- **Umbrella mode** (`feature/<name>` branch, no resolvable `<N>`): fetch active sub-issues and prompt:
+  - Map umbrella to its parent by asking the user: "Which parent does `<branch>` correspond to? Reply with the issue number."
   - `gh issue list --repo "$REPO" --state open --search "in:body Parent: #<parent>"` — list open sub-issues.
   - Prompt: "Which sub-issue are you designing? Reply with the issue number."
   - Re-run precompute conceptually for that `<N>` (or just fetch issue metadata directly), and derive slug = title-slug from `/sillok-start` step 9 (run `bash ${CLAUDE_PLUGIN_ROOT}/scripts/slug-from-title.sh <N> "<title>"`).
@@ -48,6 +63,8 @@ Spec existence was verified in step 1 — abort already handled there.
 
 ## Step 3: Spec path + pre-existing check
 
+**Story-design mode skips this step** — stories do not get a spec file (the brainstorming output goes straight into the story body's `## Architecture` section). Jump to Step 4.
+
 > `<SPEC_DIR>` below resolves to the value of `docs.specs` in `.claude/sillok/workflow.config.json` (default `docs/superpowers/specs`).
 
 Spec existence was checked by precompute (step 1). Apply:
@@ -59,7 +76,15 @@ Do NOT pre-create labels — the standard label set is bootstrapped at repo setu
 
 ## Step 4: Invoke brainstorming
 
-If precompute reported a cross-repo parent (`parent_repo != REPO`), fetch the PRD body:
+**Story-design mode:** seed `superpowers:brainstorming` differently — the goal is architecture and decomposition, not a code-level spec:
+
+- Story title + full body (Integration branch, Context, Non-goals)
+- Cross-repo PRD body (if `prdRepo` configured)
+- Framing: "This is a Story (composite tracking issue). Brainstorm the architecture (tech choices, data flow, component boundaries) and the sub-issue breakdown. No code-level spec — the output goes into the story body's Architecture and Sub-issues sections."
+
+The brainstorming output is stored as `$architecture_content` (Architecture prose) and `$sub_issues_plan` (the planned breakdown) for Step 8. Then continue to Step 6 (review), Step 7 (status), Step 7.5 (key decisions). Skip the spec-file write in Step 5.
+
+**Ordinary single-issue / sub-issue mode:** If precompute reported a cross-repo parent (`parent_repo != REPO`), fetch the PRD body:
 
 ```bash
 PRD_BODY=$(gh issue view "$parent_n" --repo "$parent_repo" --json body --jq '.body')
@@ -77,6 +102,8 @@ The brainstorming skill drives the discussion. Follow its instructions.
 ## Step 5: Save spec
 
 When brainstorming concludes (the skill produces a coherent spec draft), write the result to the spec path computed in step 3.
+
+**Story-design mode skips this step** — no spec file. The brainstorming output lives only in the story body (Step 8 story branch).
 
 ## Step 6: Review loop
 
@@ -174,9 +201,51 @@ EOF
 
 Drift policy: if the spec file and issue body diverge later, the file wins — re-run this step to re-paste. Don't hand-edit the GH issue body for design content.
 
+### Step 8 (story-design mode): update story body
+
+No spec file. Rebuild the story body using the Story template (per `gh-issue-conventions.md`), preserving the summary / Integration branch / Context / Non-goals from step 1, and inserting the brainstorming output:
+
+```bash
+gh issue edit <N> -F - <<EOF
+<preserved 1-line summary>
+
+## Integration branch
+
+\`<preserved integration branch>\`
+
+## Key decisions
+
+$key_decisions
+
+## Architecture
+
+$architecture_content
+
+## Sub-issues
+
+$sub_issues_plan
+
+## Context
+
+<preserved context>
+
+## Non-goals
+
+<preserved non-goals>
+EOF
+```
+
+`$sub_issues_plan` is a human-readable breakdown — each item becomes a real sub-issue later via `/sillok-start --parent <N>`. Do NOT auto-create sub-issues here.
+
 ## Step 9: Output
 
-Print:
+**Story-design mode:**
+
+- Issue URL with status `In Design`
+- Story body updated with Architecture + Sub-issues breakdown + Key decisions
+- Handoff: "Next: `/sillok-start --parent <N>` to create each sub-issue from the breakdown."
+
+**Ordinary single-issue / sub-issue mode:**
 
 - Spec path: `<SPEC_DIR>/<date>-<slug>.md`
 - Issue URL with status `In Design`
