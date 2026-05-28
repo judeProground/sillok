@@ -21,12 +21,20 @@ Closes #N
 
 <2-3 lines on what and why. This becomes the squash commit message AND the done-note on the closed issue.>
 
+## Deviations from spec
+
+<Differences between the spec and actual implementation, with reasons. Empty if none.>
+
+## Review fixes
+
+<Issues found during code review / verify-gate that were fixed. Empty if none.>
+
 ## Test plan
 
 - [ ] ...
 ```
 
-Spec is in the issue body (linked via `Closes #N`). No need to reference spec/plan file paths — they are local working artifacts, not committed.
+Spec and key decisions are in the issue body (linked via `Closes #N`). No need to duplicate them in the PR body.
 
 ### `Closes #N` is mandatory
 
