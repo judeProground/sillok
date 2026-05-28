@@ -19,20 +19,22 @@ Closes #N
 
 ## Summary
 
-<2-3 lines on what and why>
+<2-3 lines on what and why. This becomes the squash commit message AND the done-note on the closed issue.>
 
-## Design
+## Deviations from spec
 
-<docs.specs>/<date>-<slug>.md
+<Differences between the spec and actual implementation, with reasons. Empty if none.>
 
-## Plan
+## Review fixes
 
-<docs.plans>/<date>-<slug>.md
+<Issues found during code review / verify-gate that were fixed. Empty if none.>
 
 ## Test plan
 
 - [ ] ...
 ```
+
+Spec and key decisions are in the issue body (linked via `Closes #N`). No need to duplicate them in the PR body.
 
 ### `Closes #N` is mandatory
 

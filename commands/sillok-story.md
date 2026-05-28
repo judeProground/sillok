@@ -49,8 +49,11 @@ Used when the user is on `main`, an unrelated branch, or a fresh worktree.
 
    `story/issue-<TBD>-<slug>`
 
+   ## Key decisions
+   <empty — filled by /sillok-design story mode>
+
    ## Architecture
-   <optional>
+   <empty — filled by /sillok-design story mode>
 
    ## Sub-issues
    <empty — fills as /sillok-start --parent runs>
@@ -61,6 +64,8 @@ Used when the user is on `main`, an unrelated branch, or a fresh worktree.
    ## Non-goals
    <optional>
    ```
+
+   Architecture and Key decisions start empty — `/sillok-design` (story mode) fills them from brainstorming. The user can also write Architecture by hand if they skip design.
 
 4. Create the issue. Read orgMode from config (`sillok_config orgMode`). Branch the REST call:
 
@@ -258,9 +263,13 @@ Used when the user is in the middle of a non-story work-unit branch that turned 
 
       \`$story_branch\`
 
+      ## Key decisions
+
+      (Run /sillok-design story mode to capture key decisions.)
+
       ## Architecture
 
-      (Promoted from $current_issue_type — fill in architecture as sub-features emerge.)
+      (Promoted from $current_issue_type — run /sillok-design story mode, or fill in as sub-features emerge.)
 
       ## Sub-issues
 

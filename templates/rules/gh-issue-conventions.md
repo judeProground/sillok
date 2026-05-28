@@ -137,6 +137,10 @@ Parent: #<M>            <!-- omit line if standalone -->
 
 <1–2 sentences describing intent>
 
+## Key decisions            <!-- filled by /sillok-design step 7.5; always present, may be empty -->
+
+- **<decision>** — <reason>
+
 ## PRD link                  <!-- omit section if no PRD -->
 
 docs/<path>.md
@@ -145,9 +149,9 @@ docs/<path>.md
 
 <full spec content pasted inline here>
 
-## Plan link                 <!-- filled by /sillok-execute -->
+## Plan                      <!-- filled by /sillok-execute -->
 
-docs/superpowers/plans/<date>-<slug>.md
+Plan written.
 
 ## PR link                   <!-- filled by /sillok-end -->
 
@@ -162,7 +166,7 @@ https://github.com/${REPO}/pull/<PR>
 
 ### Story template
 
-Stories are parent tracking issues (≥2 sub-issues, Type `Story`, integration branch). They don't have Design / Plan / PR sections themselves — those live on the sub-issues.
+Stories are parent tracking issues (≥2 sub-issues, Type `Story`, integration branch). They have no `## Design` (code-level spec) / Plan / PR sections — those live on the sub-issues. Instead, `/sillok-design` in story-design mode fills `## Key decisions` and `## Architecture` from brainstorming. No spec file is created for a story.
 
 ```markdown
 <1-line summary>
@@ -171,11 +175,15 @@ Stories are parent tracking issues (≥2 sub-issues, Type `Story`, integration b
 
 `story/issue-<N>-<slug>`
 
-## Architecture                           <!-- optional, link the design spec -->
+## Key decisions                          <!-- filled by /sillok-design (story mode); may be empty -->
 
-- docs/superpowers/specs/<date>-<slug>.md
+- **<decision>** — <reason>
 
-## Sub-issues                             <!-- GitHub renders the native sub-issues panel from GraphQL; this is a human-readable mirror, not the source of truth -->
+## Architecture                           <!-- filled by /sillok-design (story mode): brainstorming output -->
+
+<tech choices, data flow, component boundaries — prose, not a file link>
+
+## Sub-issues                             <!-- GitHub renders the native sub-issues panel from GraphQL; this is a human-readable plan until each becomes a real sub-issue via /sillok-start --parent <N> -->
 
 - [ ] #<N> · <title>
 - [ ] #<N> · <title>

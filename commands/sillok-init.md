@@ -418,12 +418,23 @@ fi
 
 `PROJECT_STATUS` is initialized to `fail` in Step 1. Values: `ok` (project verified), `incomplete` (Status field missing options), `unconfigured` (project not yet set in config — informational, not a warning).
 
-## Step 10: Ensure spec/plan dirs
+## Step 10: Ensure spec/plan dirs + gitignore
 
 ```bash
 SPEC_DIR=$(jq -r '.docs.specs' "$CFG")
 PLAN_DIR=$(jq -r '.docs.plans' "$CFG")
 mkdir -p "$PROJECT_ROOT/$SPEC_DIR" "$PROJECT_ROOT/$PLAN_DIR"
+```
+
+Spec and plan files are local working artifacts (the issue body is the canonical record). Add them to `.gitignore` if not already present:
+
+```bash
+GITIGNORE="$PROJECT_ROOT/.gitignore"
+for entry in "$SPEC_DIR/" "$PLAN_DIR/"; do
+  if ! grep -qxF "$entry" "$GITIGNORE" 2>/dev/null; then
+    echo "$entry" >> "$GITIGNORE"
+  fi
+done
 ```
 
 ## Step 11: Print summary
