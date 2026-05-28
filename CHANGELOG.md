@@ -6,7 +6,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [2.2.1] — 2026-05-28
+## [2.3.0] — 2026-05-28
 
 ### Fixed
 - **`sillok_config_array` fallback broken when project config lacks an array key.** A `jq` empty result exited 0, triggering an early `return` that skipped the template default. Minimal consumer configs silently got empty arrays for `types.list`, `labels.natures`, etc. Now captures output and falls through when empty.
