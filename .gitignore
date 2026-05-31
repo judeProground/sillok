@@ -6,6 +6,7 @@ node_modules/
 .env.*
 *.log
 .tmp/
+tmp/
 .test-sandbox/
 
 # sillok self-hosting artifacts (do not ship to plugin users)
