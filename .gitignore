@@ -12,3 +12,4 @@ node_modules/
 .claude/sillok/
 .claude/commands/sillok-*.md
 .worktrees/
+docs/
