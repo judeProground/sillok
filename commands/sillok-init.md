@@ -73,8 +73,9 @@ PROJ_NUM=0
 PROJ_TITLE=""
 
 # Try listing projects for the repo owner (works for both org and user)
-proj_json=$(gh project list --owner "$PROJ_OWNER" --format json 2>/dev/null || echo '{"projects":[]}')
+proj_json=$(gh project list --owner "$PROJ_OWNER" --format json 2>/dev/null || echo '{"projects":[],"totalCount":0}')
 proj_count=$(echo "$proj_json" | jq '.projects | length')
+proj_total=$(echo "$proj_json" | jq '.totalCount // 0')
 
 if [[ "$proj_count" == "1" ]]; then
   PROJ_NUM=$(echo "$proj_json" | jq -r '.projects[0].number')
@@ -85,7 +86,28 @@ elif [[ "$proj_count" -gt 1 ]]; then
   echo "$proj_json" | jq -r '.projects[] | "  \(.number)) \(.title)"'
   echo "[sillok-init] Set project.owner and project.number in workflow.config.json manually."
 else
-  echo "[sillok-init] No projects found for $PROJ_OWNER — set project.* manually if needed."
+  # Empty-case: 0 open projects under the repo owner. Note closed/hidden, then
+  # prompt once for a project URL (acceptable exception to zero-prompt — only
+  # fires when auto-detection yields nothing).
+  if [[ "$proj_total" -gt 0 ]]; then
+    echo "[sillok-init] No OPEN projects under $PROJ_OWNER (but $proj_total closed/hidden project(s) exist — list with 'gh project list --owner $PROJ_OWNER --closed')."
+  else
+    echo "[sillok-init] No projects found under $PROJ_OWNER."
+  fi
+  read -r -p "If your board lives elsewhere, paste its URL (or press Enter to skip): " proj_url
+  if [[ -n "$proj_url" ]]; then
+    parsed=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/parse-project-url.sh" "$proj_url" 2>/dev/null || echo "")
+    url_owner=$(echo "$parsed" | awk -F= '$1=="owner"{print $2}')
+    url_number=$(echo "$parsed" | awk -F= '$1=="number"{print $2}')
+    if [[ -n "$url_owner" && -n "$url_number" ]]; then
+      PROJ_OWNER="$url_owner"
+      PROJ_NUM="$url_number"
+      PROJ_TITLE=$(gh project view "$PROJ_NUM" --owner "$PROJ_OWNER" --format json --jq '.title' 2>/dev/null || echo "(unknown)")
+      echo "[sillok-init] Project set from URL: $PROJ_TITLE (#$PROJ_NUM, owner=$PROJ_OWNER)"
+    else
+      echo "[sillok-init] URL did not match a GitHub project — skipping project setup."
+    fi
+  fi
 fi
 ```
 
