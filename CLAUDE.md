@@ -112,6 +112,7 @@ v2.0 replaced label-based type/stage tracking with GitHub-native primitives:
 | `bootstrap-labels.sh` | Idempotent GitHub label creation |
 | `detect-slices.sh` | Scans project structure for area-label candidates |
 | `detect-stack.sh` | Detects project tech stack (language, framework) |
+| `parse-project-url.sh` | Parse a GitHub Project v2 URL into owner+number (used by /sillok-init empty-case prompt) |
 | `pick-areas.sh` | Rank-filters slice candidates (top 15, rank ≥ 2) |
 | `slug-from-title.sh` | Converts issue title → kebab-case branch slug |
 | `write-shim-commands.sh` | Writes shortcut command shims during init |

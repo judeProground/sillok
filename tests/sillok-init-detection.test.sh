@@ -21,9 +21,11 @@ grep -q "paste its URL" "$INIT_MD" \
 pass "empty-case URL prompt present"
 
 echo "test: Step 2a-2 notes closed/hidden project case"
-grep -Eq "closed|hidden" "$INIT_MD" \
-  || fail "expected a closed/hidden project note when totalCount > 0 but list empty"
-pass "closed-project note present"
+step2a2=$(awk '/^## Step 2a-2:/{flag=1} /^## Step /{if(flag && !/^## Step 2a-2:/) exit} flag' "$INIT_MD")
+if ! echo "$step2a2" | grep -Eq "closed|hidden"; then
+  fail "expected a closed/hidden project note inside Step 2a-2"
+fi
+pass "closed-project note present in Step 2a-2"
 
 echo "test: Step 9b verification does NOT use organization(login:)"
 # Extract Step 9b block. The block starts at the Step 9b heading and ends at the

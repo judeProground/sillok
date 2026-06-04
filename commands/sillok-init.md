@@ -1,10 +1,10 @@
 ---
-description: Bootstrap a project for sillok. Zero-prompt — detects repo, base branch, package manager, gitignored config files, and branch prefix automatically. Idempotent.
+description: Bootstrap a project for sillok. Detects repo, base branch, package manager, gitignored config files, and branch prefix automatically. Asks at most one question (project URL, only when auto-detection finds no board). Idempotent.
 ---
 
 You are running `/sillok-init` to bootstrap the current project for sillok.
 
-**This command takes no arguments and asks no questions.** If detection of any field fails, the field is left empty in the generated config and a warning is printed; the user edits `.claude/sillok/workflow.config.json` afterward.
+**This command takes no arguments and asks at most one question** (a project URL, only when auto-detection yields nothing — see Step 2a-2). If detection of any field fails, the field is left empty in the generated config and a warning is printed; the user edits `.claude/sillok/workflow.config.json` afterward.
 
 **Auto-mode contract:** every step below MUST execute. Do not skip Step 7b (shim install) or Step 8b (area auto-pick) even when invoked by an auto-mode agent — both are deterministic, write only to plugin-managed paths, and have idempotent safeguards documented in their own headers.
 
@@ -331,7 +331,7 @@ fi
 
 ## Step 8b: Auto-pick area labels
 
-Scan the project for vertical-slice candidates and auto-select a conservative subset for `area:<name>` GitHub labels. This step is **non-interactive** (no `AskUserQuestion` call) so the init preamble's "asks no questions" guarantee holds. The user can adjust the selection afterward by editing `labels.areas` in `workflow.config.json` or by asking Claude to do it in natural language.
+Scan the project for vertical-slice candidates and auto-select a conservative subset for `area:<name>` GitHub labels. This step is **non-interactive** (no `AskUserQuestion` call). The user can adjust the selection afterward by editing `labels.areas` in `workflow.config.json` or by asking Claude to do it in natural language.
 
 1. **Skip if user already curated areas.** Re-running init on a project where `labels.areas` is already non-empty should NOT clobber the user's curation:
 

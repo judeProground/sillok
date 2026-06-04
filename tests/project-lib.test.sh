@@ -60,3 +60,6 @@ if awk '/^sillok_project_option_id\(\)/,/^}/' "$REPO_ROOT/scripts/lib/project.sh
   fail "sillok_project_option_id still uses organization(login:)"
 fi
 pass "sillok_project_option_id is owner-agnostic"
+
+echo
+echo "All project-lib.sh tests passed."
