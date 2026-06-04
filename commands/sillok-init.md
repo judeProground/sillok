@@ -416,7 +416,9 @@ PROJ_OWNER=$(jq -r '.project.owner' "$CFG")
 PROJ_NUM=$(jq -r '.project.number' "$CFG")
 if [[ -n "$PROJ_OWNER" && "$PROJ_NUM" != "0" && "$PROJ_NUM" != "null" ]]; then
   expected_opts=("Todo" "In Design" "In Progress" "In QA" "Done")
-  actual_opts=$(gh api graphql -f query="{ organization(login: \"$PROJ_OWNER\") { projectV2(number: $PROJ_NUM) { field(name: \"Status\") { ... on ProjectV2SingleSelectField { options { name } } } } } }" --jq '.data.organization.projectV2.field.options[].name' 2>/dev/null || echo "")
+  # gh project field-list is owner-agnostic (works for both user- and org-owned boards)
+  actual_opts=$(gh project field-list "$PROJ_NUM" --owner "$PROJ_OWNER" --format json \
+    --jq '.fields[] | select(.name=="Status") | .options[].name' 2>/dev/null || echo "")
 
   proj_missing=()
   for opt in "${expected_opts[@]}"; do
@@ -427,7 +429,7 @@ if [[ -n "$PROJ_OWNER" && "$PROJ_NUM" != "0" && "$PROJ_NUM" != "null" ]]; then
 
   if [[ ${#proj_missing[@]} -gt 0 ]]; then
     echo "[sillok-init] Project $PROJ_OWNER/projects/$PROJ_NUM Status field missing options: ${proj_missing[*]}"
-    echo "  Add via UI: https://github.com/orgs/$PROJ_OWNER/projects/$PROJ_NUM/settings"
+    echo "  Add via UI: https://github.com/orgs/$PROJ_OWNER/projects/$PROJ_NUM/settings (or /users/$PROJ_OWNER/projects/$PROJ_NUM/settings for a user board)"
     PROJECT_STATUS=incomplete
   else
     PROJECT_STATUS=ok

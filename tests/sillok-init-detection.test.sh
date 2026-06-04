@@ -25,5 +25,14 @@ grep -Eq "closed|hidden" "$INIT_MD" \
   || fail "expected a closed/hidden project note when totalCount > 0 but list empty"
 pass "closed-project note present"
 
+echo "test: Step 9b verification does NOT use organization(login:)"
+# Extract Step 9b block. The block starts at the Step 9b heading and ends at the
+# next "## Step" heading.
+step9b=$(awk '/^## Step 9b:/{flag=1} /^## Step /{if(flag && !/^## Step 9b:/) exit} flag' "$INIT_MD")
+if echo "$step9b" | grep -q "organization(login:"; then
+  fail "Step 9b still uses organization(login:) — should use gh project field-list"
+fi
+pass "Step 9b verification is owner-agnostic"
+
 echo
 echo "All sillok-init detection structural tests passed."
