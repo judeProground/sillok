@@ -91,6 +91,7 @@ sillok_project_item_add() {
 }
 
 # Get the field ID for a named field on the project. Cached.
+# Resolves via node(id: $projectId) so it works for both user- and org-owned boards.
 # Usage: sillok_project_field_id <field-name>
 sillok_project_field_id() {
   local name="$1"
@@ -104,18 +105,17 @@ sillok_project_field_id() {
     fi
   fi
 
-  local owner number
-  owner=$(sillok_config project.owner)
-  number=$(sillok_config project.number)
+  local project_id
+  project_id=$(sillok_project_id) || return 1
 
   local fields_json
   fields_json=$(gh api graphql -f query="{
-    organization(login: \"$owner\") {
-      projectV2(number: $number) {
+    node(id: \"$project_id\") {
+      ... on ProjectV2 {
         fields(first: 50) { nodes { ... on ProjectV2Field { id name } ... on ProjectV2SingleSelectField { id name } } }
       }
     }
-  }" --jq '.data.organization.projectV2.fields.nodes[] | "\(.name):\(.id)"') || return 1
+  }" --jq '.data.node.fields.nodes[] | "\(.name):\(.id)"') || return 1
 
   _SILLOK_FIELD_ID_CACHE=$(printf '%s' "$fields_json" | tr '\n' '|')
 

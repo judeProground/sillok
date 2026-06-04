@@ -46,3 +46,10 @@ if awk '/^sillok_project_id\(\)/,/^}/' "$REPO_ROOT/scripts/lib/project.sh" \
   fail "sillok_project_id still uses organization(login:) — should be owner-agnostic"
 fi
 pass "sillok_project_id is owner-agnostic"
+
+echo "test: sillok_project_field_id does not hardcode organization(login:"
+if awk '/^sillok_project_field_id\(\)/,/^}/' "$REPO_ROOT/scripts/lib/project.sh" \
+  | grep -q "organization(login:"; then
+  fail "sillok_project_field_id still uses organization(login:)"
+fi
+pass "sillok_project_field_id is owner-agnostic"
