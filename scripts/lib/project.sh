@@ -123,6 +123,7 @@ sillok_project_field_id() {
 }
 
 # Get the option ID for a named status option. Cached per field+option key.
+# Resolves via node(id: $projectId) so it works for both user- and org-owned boards.
 # Usage: sillok_project_option_id <field-name> <option-name>
 sillok_project_option_id() {
   local field_name="$1"
@@ -138,14 +139,13 @@ sillok_project_option_id() {
     fi
   fi
 
-  local owner number
-  owner=$(sillok_config project.owner)
-  number=$(sillok_config project.number)
+  local project_id
+  project_id=$(sillok_project_id) || return 1
 
   local options_json
   options_json=$(gh api graphql -f query="{
-    organization(login: \"$owner\") {
-      projectV2(number: $number) {
+    node(id: \"$project_id\") {
+      ... on ProjectV2 {
         field(name: \"$field_name\") {
           ... on ProjectV2SingleSelectField {
             options { id name }
@@ -153,7 +153,7 @@ sillok_project_option_id() {
         }
       }
     }
-  }" --jq '.data.organization.projectV2.field.options[]? | "\(.name):\(.id)"') || return 1
+  }" --jq '.data.node.field.options[]? | "\(.name):\(.id)"') || return 1
 
   # Append to cache
   while IFS= read -r line; do
