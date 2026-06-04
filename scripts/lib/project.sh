@@ -12,7 +12,8 @@ _SILLOK_PROJECT_ID=""
 _SILLOK_FIELD_ID_CACHE=""
 _SILLOK_OPTION_ID_CACHE=""
 
-# Fetch project node ID via GraphQL. Cached per command run.
+# Fetch project node ID via the owner-type-agnostic `gh project` CLI. Cached
+# per command run. Works for both user- and org-owned ProjectV2 boards.
 sillok_project_id() {
   if [[ -n "$_SILLOK_PROJECT_ID" ]]; then
     printf '%s' "$_SILLOK_PROJECT_ID"
@@ -25,8 +26,11 @@ sillok_project_id() {
     echo "[sillok] project.owner or project.number not configured" >&2
     return 1
   fi
-  _SILLOK_PROJECT_ID=$(gh api graphql -f query="{ organization(login: \"$owner\") { projectV2(number: $number) { id } } }" \
-    --jq '.data.organization.projectV2.id') || return 1
+  _SILLOK_PROJECT_ID=$(gh project view "$number" --owner "$owner" --format json --jq '.id' 2>/dev/null) || return 1
+  if [[ -z "$_SILLOK_PROJECT_ID" ]]; then
+    echo "[sillok] could not resolve project $owner/projects/$number — check it exists and you have access" >&2
+    return 1
+  fi
   printf '%s' "$_SILLOK_PROJECT_ID"
 }
 
