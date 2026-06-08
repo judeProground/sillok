@@ -525,9 +525,9 @@ Next: /sillok-start to create your first feature.
 ## Idempotency guarantees
 
 Re-running `/sillok-init` must:
-- Skip rule files that already exist (do NOT overwrite)
+- Refresh rule files from the plugin's `templates/rules/` (overwrite when content differs; local edits are not preserved — recover from git if needed)
 - Refresh shim command files that carry `sillok-shim: true` (so a plugin upgrade can update the shim format); leave foreign `.claude/commands/sillok-*.md` files untouched
 - Skip CLAUDE.md import-block append if the marker is already present
 - Skip label creation for labels that already exist (handled by `bootstrap-labels.sh` with `|| true`)
-- Leave `workflow.config.json` alone if it already exists (report "config already present — edit manually to update")
+- Deep-merge `workflow.config.json` on re-run: add missing template keys, preserve existing user values, keep arrays verbatim
 - Preserve existing `labels.areas` array: if non-empty in the existing config, Step 8b reports `skip-preserved` and does NOT overwrite (user's curation wins over auto-pick)

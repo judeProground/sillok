@@ -73,9 +73,9 @@ If touching any of these, keep the three in sync — drift breaks the parent-chi
 
 `/sillok-init` and `scripts/bootstrap-labels.sh` are explicitly idempotent. Re-running must:
 
-- Not overwrite an existing `workflow.config.json` (print "already exists — edit manually").
+- Deep-merge an existing `workflow.config.json` via `scripts/migrate-config.sh` (add missing template keys, preserve user values, arrays verbatim).
 - Not duplicate the CLAUDE.md import block (grep for the marker line first).
-- Not recreate existing rule files (skip with notice).
+- Refresh rule files from `templates/rules/` via `scripts/refresh-rules.sh` (overwrite when content differs).
 - Not error on `gh label create` when labels already exist (mask with `|| true`).
 
 Preserve this when modifying init/bootstrap logic. Consumer projects re-run `/sillok-init` to upgrade.
