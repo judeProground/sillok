@@ -44,7 +44,11 @@ if ! jq empty "$template" 2>/dev/null; then
 fi
 
 # Deep-merge: template * project (project wins; arrays replaced wholesale).
-merged=$(jq -s '.[0] * .[1]' "$template" "$project")
+# Explicit failure check — a bare `x=$(cmd)` assignment does not trip set -e.
+if ! merged=$(jq -s '.[0] * .[1]' "$template" "$project"); then
+  echo "[sillok-init] migrate-config: merge failed (jq error)" >&2
+  exit 1
+fi
 
 # No-op guard: if the merge is semantically identical to the current project
 # config, leave the file untouched (preserve user formatting) and print nothing.
@@ -53,7 +57,10 @@ if [[ "$(printf '%s' "$merged" | jq -S .)" == "$(jq -S . "$project")" ]]; then
 fi
 
 # Summary: top-level keys present in template but absent from project, sorted.
-added=$(jq -rs '(.[0] | keys) - (.[1] | keys) | sort | join(", ")' "$template" "$project")
+if ! added=$(jq -rs '(.[0] | keys) - (.[1] | keys) | sort | join(", ")' "$template" "$project"); then
+  echo "[sillok-init] migrate-config: summary computation failed (jq error)" >&2
+  exit 1
+fi
 
 # Write atomically on the same filesystem as the target.
 tmp=$(mktemp "${project}.tmp.XXXXXX")
