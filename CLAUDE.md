@@ -116,6 +116,8 @@ v2.0 replaced label-based type/stage tracking with GitHub-native primitives:
 | `slug-from-title.sh` | Converts issue title → kebab-case branch slug |
 | `write-shim-commands.sh` | Writes shortcut command shims during init |
 | `migrate-v1-to-v2.sh` | Migrates a repo from v1 (label-based types/stages) to v2 (Issue Types + Projects v2) |
+| `migrate-config.sh` | Deep-merges template defaults into an existing project config (preserves user values) on `/sillok-init` re-run |
+| `refresh-rules.sh` | Overwrites project rule files from `templates/rules/` when content differs, on `/sillok-init` re-run |
 | `lib/config.sh` | Shared config reader (sourced by all other scripts) |
 | `lib/issue-types.sh` | GitHub Issue Types REST API helpers |
 | `lib/project.sh` | Projects v2 GraphQL helpers (add item, set status) |
