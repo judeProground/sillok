@@ -1,10 +1,10 @@
 ---
-description: Bootstrap a project for sillok. Zero-prompt — detects repo, base branch, package manager, gitignored config files, and branch prefix automatically. Idempotent.
+description: Bootstrap a project for sillok. Detects repo, base branch, package manager, gitignored config files, and branch prefix automatically. Asks at most one question (project URL, only when auto-detection finds no board). Idempotent.
 ---
 
 You are running `/sillok-init` to bootstrap the current project for sillok.
 
-**This command takes no arguments and asks no questions.** If detection of any field fails, the field is left empty in the generated config and a warning is printed; the user edits `.claude/sillok/workflow.config.json` afterward.
+**This command takes no arguments and asks at most one question** (a project URL, only when auto-detection yields nothing — see Step 2a-2). If detection of any field fails, the field is left empty in the generated config and a warning is printed; the user edits `.claude/sillok/workflow.config.json` afterward.
 
 **Auto-mode contract:** every step below MUST execute. Do not skip Step 7b (shim install) or Step 8b (area auto-pick) even when invoked by an auto-mode agent — both are deterministic, write only to plugin-managed paths, and have idempotent safeguards documented in their own headers.
 
@@ -73,8 +73,9 @@ PROJ_NUM=0
 PROJ_TITLE=""
 
 # Try listing projects for the repo owner (works for both org and user)
-proj_json=$(gh project list --owner "$PROJ_OWNER" --format json 2>/dev/null || echo '{"projects":[]}')
+proj_json=$(gh project list --owner "$PROJ_OWNER" --format json 2>/dev/null || echo '{"projects":[],"totalCount":0}')
 proj_count=$(echo "$proj_json" | jq '.projects | length')
+proj_total=$(echo "$proj_json" | jq '.totalCount // 0')
 
 if [[ "$proj_count" == "1" ]]; then
   PROJ_NUM=$(echo "$proj_json" | jq -r '.projects[0].number')
@@ -85,7 +86,28 @@ elif [[ "$proj_count" -gt 1 ]]; then
   echo "$proj_json" | jq -r '.projects[] | "  \(.number)) \(.title)"'
   echo "[sillok-init] Set project.owner and project.number in workflow.config.json manually."
 else
-  echo "[sillok-init] No projects found for $PROJ_OWNER — set project.* manually if needed."
+  # Empty-case: 0 open projects under the repo owner. Note closed/hidden, then
+  # prompt once for a project URL (acceptable exception to zero-prompt — only
+  # fires when auto-detection yields nothing).
+  if [[ "$proj_total" -gt 0 ]]; then
+    echo "[sillok-init] No OPEN projects under $PROJ_OWNER (but $proj_total closed/hidden project(s) exist — list with 'gh project list --owner $PROJ_OWNER --closed')."
+  else
+    echo "[sillok-init] No projects found under $PROJ_OWNER."
+  fi
+  read -r -p "If your board lives elsewhere, paste its URL (or press Enter to skip): " proj_url
+  if [[ -n "$proj_url" ]]; then
+    parsed=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/parse-project-url.sh" "$proj_url" 2>/dev/null || echo "")
+    url_owner=$(echo "$parsed" | awk -F= '$1=="owner"{print $2}')
+    url_number=$(echo "$parsed" | awk -F= '$1=="number"{print $2}')
+    if [[ -n "$url_owner" && -n "$url_number" ]]; then
+      PROJ_OWNER="$url_owner"
+      PROJ_NUM="$url_number"
+      PROJ_TITLE=$(gh project view "$PROJ_NUM" --owner "$PROJ_OWNER" --format json --jq '.title' 2>/dev/null || echo "(unknown)")
+      echo "[sillok-init] Project set from URL: $PROJ_TITLE (#$PROJ_NUM, owner=$PROJ_OWNER)"
+    else
+      echo "[sillok-init] URL did not match a GitHub project — skipping project setup."
+    fi
+  fi
 fi
 ```
 
@@ -309,7 +331,7 @@ fi
 
 ## Step 8b: Auto-pick area labels
 
-Scan the project for vertical-slice candidates and auto-select a conservative subset for `area:<name>` GitHub labels. This step is **non-interactive** (no `AskUserQuestion` call) so the init preamble's "asks no questions" guarantee holds. The user can adjust the selection afterward by editing `labels.areas` in `workflow.config.json` or by asking Claude to do it in natural language.
+Scan the project for vertical-slice candidates and auto-select a conservative subset for `area:<name>` GitHub labels. This step is **non-interactive** (no `AskUserQuestion` call). The user can adjust the selection afterward by editing `labels.areas` in `workflow.config.json` or by asking Claude to do it in natural language.
 
 1. **Skip if user already curated areas.** Re-running init on a project where `labels.areas` is already non-empty should NOT clobber the user's curation:
 
@@ -394,7 +416,9 @@ PROJ_OWNER=$(jq -r '.project.owner' "$CFG")
 PROJ_NUM=$(jq -r '.project.number' "$CFG")
 if [[ -n "$PROJ_OWNER" && "$PROJ_NUM" != "0" && "$PROJ_NUM" != "null" ]]; then
   expected_opts=("Todo" "In Design" "In Progress" "In QA" "Done")
-  actual_opts=$(gh api graphql -f query="{ organization(login: \"$PROJ_OWNER\") { projectV2(number: $PROJ_NUM) { field(name: \"Status\") { ... on ProjectV2SingleSelectField { options { name } } } } } }" --jq '.data.organization.projectV2.field.options[].name' 2>/dev/null || echo "")
+  # gh project field-list is owner-agnostic (works for both user- and org-owned boards)
+  actual_opts=$(gh project field-list "$PROJ_NUM" --owner "$PROJ_OWNER" --format json \
+    --jq '.fields[] | select(.name=="Status") | .options[].name' 2>/dev/null || echo "")
 
   proj_missing=()
   for opt in "${expected_opts[@]}"; do
@@ -405,7 +429,7 @@ if [[ -n "$PROJ_OWNER" && "$PROJ_NUM" != "0" && "$PROJ_NUM" != "null" ]]; then
 
   if [[ ${#proj_missing[@]} -gt 0 ]]; then
     echo "[sillok-init] Project $PROJ_OWNER/projects/$PROJ_NUM Status field missing options: ${proj_missing[*]}"
-    echo "  Add via UI: https://github.com/orgs/$PROJ_OWNER/projects/$PROJ_NUM/settings"
+    echo "  Add via UI: https://github.com/orgs/$PROJ_OWNER/projects/$PROJ_NUM/settings (or /users/$PROJ_OWNER/projects/$PROJ_NUM/settings for a user board)"
     PROJECT_STATUS=incomplete
   else
     PROJECT_STATUS=ok

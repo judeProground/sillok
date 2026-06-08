@@ -3,7 +3,11 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-LIB="$SCRIPT_DIR/../scripts/lib/project.sh"
+REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+LIB="$REPO_ROOT/scripts/lib/project.sh"
+
+fail() { echo "FAIL: $1" >&2; exit 1; }
+pass() { echo "  ok: $1"; }
 
 if [[ ! -f "$LIB" ]]; then
   echo "FAIL: $LIB does not exist"
@@ -35,3 +39,27 @@ if [[ "$ok" == "1" ]]; then
 else
   exit 1
 fi
+
+echo "test: sillok_project_id does not hardcode organization(login:"
+if awk '/^sillok_project_id\(\)/,/^}/' "$REPO_ROOT/scripts/lib/project.sh" \
+  | grep -q "organization(login:"; then
+  fail "sillok_project_id still uses organization(login:) — should be owner-agnostic"
+fi
+pass "sillok_project_id is owner-agnostic"
+
+echo "test: sillok_project_field_id does not hardcode organization(login:"
+if awk '/^sillok_project_field_id\(\)/,/^}/' "$REPO_ROOT/scripts/lib/project.sh" \
+  | grep -q "organization(login:"; then
+  fail "sillok_project_field_id still uses organization(login:)"
+fi
+pass "sillok_project_field_id is owner-agnostic"
+
+echo "test: sillok_project_option_id does not hardcode organization(login:"
+if awk '/^sillok_project_option_id\(\)/,/^}/' "$REPO_ROOT/scripts/lib/project.sh" \
+  | grep -q "organization(login:"; then
+  fail "sillok_project_option_id still uses organization(login:)"
+fi
+pass "sillok_project_option_id is owner-agnostic"
+
+echo
+echo "All project-lib.sh tests passed."
