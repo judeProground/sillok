@@ -73,9 +73,9 @@ If touching any of these, keep the three in sync — drift breaks the parent-chi
 
 `/sillok-init` and `scripts/bootstrap-labels.sh` are explicitly idempotent. Re-running must:
 
-- Not overwrite an existing `workflow.config.json` (print "already exists — edit manually").
+- Deep-merge an existing `workflow.config.json` via `scripts/migrate-config.sh` (add missing template keys, preserve user values, arrays verbatim).
 - Not duplicate the CLAUDE.md import block (grep for the marker line first).
-- Not recreate existing rule files (skip with notice).
+- Refresh rule files from `templates/rules/` via `scripts/refresh-rules.sh` (overwrite when content differs).
 - Not error on `gh label create` when labels already exist (mask with `|| true`).
 
 Preserve this when modifying init/bootstrap logic. Consumer projects re-run `/sillok-init` to upgrade.
@@ -117,6 +117,8 @@ v2.0 replaced label-based type/stage tracking with GitHub-native primitives:
 | `slug-from-title.sh` | Converts issue title → kebab-case branch slug |
 | `write-shim-commands.sh` | Writes shortcut command shims during init |
 | `migrate-v1-to-v2.sh` | Migrates a repo from v1 (label-based types/stages) to v2 (Issue Types + Projects v2) |
+| `migrate-config.sh` | Deep-merges template defaults into an existing project config (preserves user values) on `/sillok-init` re-run |
+| `refresh-rules.sh` | Overwrites project rule files from `templates/rules/` when content differs, on `/sillok-init` re-run |
 | `lib/config.sh` | Shared config reader (sourced by all other scripts) |
 | `lib/issue-types.sh` | GitHub Issue Types REST API helpers |
 | `lib/project.sh` | Projects v2 GraphQL helpers (add item, set status) |
