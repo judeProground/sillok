@@ -83,5 +83,33 @@ tsout=$(bash "$SCRIPT" "$PROJ/")
 printf '%s\n' "$tsout" | grep -qx "src" || fail "trailing-slash root: 'src' should be depth-0 (no indent), got: $(printf '%s\n' "$tsout" | grep -n src)"
 pass "trailing-slash root normalized"
 
+echo "test: built-in language/platform junk pruned (python venv, RN android/ios, target, Pods)"
+HARD=$(mktemp -d)
+mkdir -p "$HARD/src/billing"
+mkdir -p "$HARD/__pycache__/x" "$HARD/venv/lib" "$HARD/target/debug" \
+         "$HARD/Pods/Foo" "$HARD/android/app" "$HARD/ios/build"
+hardout=$(bash "$SCRIPT" "$HARD")
+for j in __pycache__ venv target Pods android ios; do
+  if printf '%s\n' "$hardout" | grep -qw "$j"; then fail "built-in junk '$j' not pruned"; fi
+done
+printf '%s\n' "$hardout" | grep -qx "  billing" || fail "real feature 'billing' missing"
+rm -rf "$HARD"
+pass "built-in language/platform junk pruned, real feature kept"
+
+echo "test: .gitignore-based pruning in a git repo (custom ignored dir dropped, feature kept)"
+if command -v git >/dev/null 2>&1; then
+  GREPO=$(mktemp -d)
+  git -C "$GREPO" init -q
+  printf 'generated/\n' > "$GREPO/.gitignore"
+  mkdir -p "$GREPO/src/payments" "$GREPO/generated/code"
+  grepout=$(bash "$SCRIPT" "$GREPO")
+  if printf '%s\n' "$grepout" | grep -qw "generated"; then fail ".gitignore: 'generated' should be pruned via git check-ignore"; fi
+  printf '%s\n' "$grepout" | grep -qx "  payments" || fail ".gitignore: real feature 'payments' missing"
+  rm -rf "$GREPO"
+  pass ".gitignore-based pruning works (non-hardcoded ignored dir dropped)"
+else
+  echo "  (git not available — skipping .gitignore pruning test)"
+fi
+
 echo
 echo "All project-tree.sh tests passed."

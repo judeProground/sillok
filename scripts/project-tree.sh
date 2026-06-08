@@ -3,7 +3,9 @@
 # tree for area-label classification.
 #
 # Makes NO structural assumption about where feature slices live: it prints every
-# directory (dirs only, files omitted), pruning build/tool junk and dot-dirs.
+# directory (dirs only, files omitted), pruning: (a) a built-in set of build/tool
+# and native-platform dirs that are never feature areas, (b) all dot-dirs, and
+# (c) anything the project's .gitignore ignores, when run inside a git repo.
 # There is intentionally NO depth cap — a fixed depth would reintroduce the bug
 # class this replaces (deep slices like src/service/v2/<feature> getting missed).
 # A line cap (LINE_CAP) is a pure resource backstop, not a structural limit; when
@@ -32,17 +34,41 @@ ROOT="${ROOT%/}"
 
 LINE_CAP=500
 
-# Collect directory paths, pruning build/tool junk subtrees and any dot-dir.
-# Junk = unambiguous build/tool artifacts (NOT business names — domain-vs-layer
-# classification is the LLM's job, not this script's).
+# Pass 1 — walk the tree, pruning during descent (so we never recurse into them) a
+# built-in set of build/tool + native-platform dirs plus every dot-dir. None are
+# business feature areas; domain-vs-layer judgment for everything else is the LLM's
+# job, not this script's. The built-in set covers the heavy/common cases across
+# ecosystems (JS, Python, Rust/JVM, native/RN) so the walk stays cheap — and so
+# platform dirs that are *committed* (android/ios in React Native, which .gitignore
+# won't list) are still excluded.
 TALLY=$(mktemp)
 trap 'rm -f "$TALLY"' EXIT
 
 { find "$ROOT" -mindepth 1 \
   \( -name node_modules -o -name dist -o -name build -o -name coverage \
-     -o -name out -o -name vendor -o -name public -o -name '.*' \) -prune \
+     -o -name out -o -name vendor -o -name public \
+     -o -name target -o -name __pycache__ -o -name venv \
+     -o -name Pods -o -name android -o -name ios \
+     -o -name '.*' \) -prune \
   -o -type d -print 2>/dev/null || true; } \
   | sort > "$TALLY"
+
+# Pass 2 — inside a git repo, drop any directory the project's .gitignore ignores.
+# This generalizes pruning to every language's build junk (Rust target/, .venv, a
+# project's custom generated/ dir, …) without maintaining an exhaustive list.
+# `git check-ignore` prints the IGNORED input paths; we keep the rest. No-op outside
+# a git repo or when git is absent (e.g. a bare directory passed in tests).
+if [[ -s "$TALLY" ]] && command -v git >/dev/null 2>&1 \
+   && git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  IGN=$(mktemp)
+  git -C "$ROOT" check-ignore --stdin < "$TALLY" > "$IGN" 2>/dev/null || true
+  if [[ -s "$IGN" ]]; then
+    KEPT=$(mktemp)
+    grep -vxF -f "$IGN" "$TALLY" > "$KEPT" || true
+    mv "$KEPT" "$TALLY"
+  fi
+  rm -f "$IGN"
+fi
 
 if [[ ! -s "$TALLY" ]]; then
   exit 0
