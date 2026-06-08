@@ -6,7 +6,7 @@ You are running the `/sillok-end` slash command for the the configured GitHub re
 
 ## Step 1: Mode detection + state derivation
 
-Run the precompute script. It outputs branch + mode + active issue meta + project status + plan path + plan task completion stats + existing PR + parent reference + dirty working tree + CWD check in one shot:
+Run the precompute script. It outputs branch + mode + active issue meta + project status + plan path + existing PR + parent reference + dirty working tree + CWD check in one shot:
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/precompute-end.sh
@@ -18,7 +18,7 @@ Read the markdown block. Show it back to the user as the current state summary.
 
 **Mode-specific handling:**
 
-- **Single-issue mode**: precompute resolved `<N>`, `<slug>`, parent `<M>` (or none), plan path, task stats, existing PR.
+- **Single-issue mode**: precompute resolved `<N>`, `<slug>`, parent `<M>` (or none), plan path, existing PR.
 - **Umbrella mode**: prompt user "Which sub-issue are you closing with this PR? Reply with the issue number." Active issue = that sub-issue. ALSO:
   - List other still-open sub-issues of the umbrella's parent story: `gh issue list --repo "$REPO" --state open --search "in:body Parent: #<parent>"`. Add a `Closes #N` line per sub-issue in the PR body.
   - Include `Closes #<parent>` IF this PR is the LAST sub-issue going to `In QA` (story-completing).
@@ -66,11 +66,10 @@ Section headers (`## Summary`, `## Design`, `Closes #N` etc.) and GitHub API fie
 
 All checks below were already performed by precompute (step 1). Apply the results:
 
-1. **Project status.** Must be `In Progress`. If `In QA` or `Done` (PR likely exists, see check #5), redirect to update-only flow. Anything else → ABORT.
+1. **Project status.** Must be `In Progress`. If `In QA` or `Done` (PR likely exists, see check #4), redirect to update-only flow. Anything else → ABORT.
 2. **Plan exists.** Required. precompute reported the path or `⚠️  No plan found` (ABORT in that case).
-3. **Plan task completion.** precompute reported `X done / Y open`. If `Y > 0`: prompt "Plan has `<Y>` open task(s). Continue with PR? (y/N)". User can override (e.g., punting last cleanup task to a follow-up issue).
-4. **Working tree.** precompute listed dirty files (if any). If dirty: prompt "Working tree has uncommitted changes (see above). Commit first / stash / abort? (commit / stash / abort)". Do NOT auto-stash silently — the user must see and decide.
-5. **Existing PR.** precompute reported PR URL + state if any. If found: prompt "PR `<URL>` already exists. (a) Update body/labels only, (b) Skip and exit. Choice?".
+3. **Working tree.** precompute listed dirty files (if any). If dirty: prompt "Working tree has uncommitted changes (see above). Commit first / stash / abort? (commit / stash / abort)". Do NOT auto-stash silently — the user must see and decide.
+4. **Existing PR.** precompute reported PR URL + state if any. If found: prompt "PR `<URL>` already exists. (a) Update body/labels only, (b) Skip and exit. Choice?".
 
 ## Step 3: Push branch
 
