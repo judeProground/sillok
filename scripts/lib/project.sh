@@ -4,7 +4,7 @@
 # Status writes are idempotent at the GitHub level (re-setting same value = no-op).
 set -euo pipefail
 
-_SILLOK_LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+_SILLOK_LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)
 # shellcheck source=config.sh
 source "$_SILLOK_LIB_DIR/config.sh"
 
@@ -38,11 +38,14 @@ sillok_project_id() {
 sillok_project_item_for_issue() {
   local issue_url="$1"
   local owner repo issue_n
-  if [[ "$issue_url" =~ github\.com/([^/]+)/([^/]+)/issues/([0-9]+) ]]; then
-    owner="${BASH_REMATCH[1]}"
-    repo="${BASH_REMATCH[2]}"
-    issue_n="${BASH_REMATCH[3]}"
-  else
+  # Parse https://github.com/<owner>/<repo>/issues/<N> via parameter expansion.
+  # (BASH_REMATCH is bash-only and stays empty under zsh; this is portable.)
+  local rest="${issue_url#*github.com/}"   # owner/repo/issues/N
+  owner="${rest%%/*}"
+  rest="${rest#*/}"                        # repo/issues/N
+  repo="${rest%%/*}"
+  issue_n="${issue_url##*/}"               # N
+  if [[ -z "$owner" || -z "$repo" || -z "$issue_n" || "$issue_url" != *"/issues/"* ]]; then
     echo "[sillok] cannot parse issue URL: $issue_url" >&2
     return 1
   fi
