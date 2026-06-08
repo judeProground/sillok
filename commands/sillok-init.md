@@ -185,10 +185,21 @@ The case-filter inside the loop remains as a final defence-in-depth check.
 mkdir -p "$PROJECT_ROOT/.claude/sillok"
 CFG="$PROJECT_ROOT/.claude/sillok/workflow.config.json"
 
-# If config already exists, do NOT overwrite — print notice and skip this step.
+MERGE_SUMMARY=""
+
+# Existing config — deep-merge in any missing template keys (user values win).
 if [[ -f "$CFG" ]]; then
-  echo "[sillok-init] $CFG already exists — leaving as-is. Edit manually to update."
-  CONFIG_STATUS=preserved
+  if MERGE_SUMMARY=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/migrate-config.sh" \
+      "$CFG" "${CLAUDE_PLUGIN_ROOT}/templates/workflow.config.json"); then
+    if [[ -n "$MERGE_SUMMARY" ]]; then
+      echo "$MERGE_SUMMARY"
+      CONFIG_STATUS=migrated
+    else
+      CONFIG_STATUS=ok
+    fi
+  else
+    CONFIG_STATUS=fail
+  fi
 else
   CONFIG_STATUS=ok
   # Build copyFiles JSON array
@@ -253,20 +264,11 @@ fi
 ## Step 7: Scaffold rules
 
 ```bash
-if mkdir -p "$PROJECT_ROOT/.claude/sillok/rules"; then
-  SKIPPED_RULES=()
+RULES_DIR="$PROJECT_ROOT/.claude/sillok/rules"
+if REFRESH_SUMMARY=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/refresh-rules.sh" \
+    "$RULES_DIR" "${CLAUDE_PLUGIN_ROOT}/templates/rules"); then
   RULES_STATUS=ok
-  for src in "${CLAUDE_PLUGIN_ROOT}/templates/rules/"*.md; do
-    name=$(basename "$src")
-    dest="$PROJECT_ROOT/.claude/sillok/rules/$name"
-    if [[ -f "$dest" ]]; then
-      SKIPPED_RULES+=("$name")
-    else
-      if ! cp "$src" "$dest"; then
-        RULES_STATUS=fail
-      fi
-    fi
-  done
+  [[ -n "$REFRESH_SUMMARY" ]] && echo "$REFRESH_SUMMARY"
 else
   RULES_STATUS=fail
 fi
@@ -443,7 +445,7 @@ Compute the headline status icon from sub-step outcomes:
 
 ```bash
 # Inputs (set by earlier steps):
-#   CONFIG_STATUS   = ok | preserved | fail        (Step 6)
+#   CONFIG_STATUS   = ok | migrated | fail          (Step 6)
 #   RULES_STATUS    = ok | fail                    (Step 7)
 #   SHIM_STATUS     = ok | fail                    (Step 7b)
 #   CLAUDE_MD_STATUS= ok | fail                    (Step 8)
@@ -477,7 +479,7 @@ Org mode:      <ORG_MODE> (<OWNER_TYPE>)                     [detected]
 
 Created:
 - .claude/sillok/workflow.config.json                  [<CONFIG_STATUS>]
-- .claude/sillok/rules/* (N files, M skipped: <list>)  [<RULES_STATUS>]
+- .claude/sillok/rules/* (refreshed on re-run)         [<RULES_STATUS>]
 - .claude/commands/sillok-{start,design,execute,end,story}.md  [<SHIM_STATUS>]
 - CLAUDE.md (appended Sillok import block)             [<CLAUDE_MD_STATUS>]
 - <SPEC_DIR>/ and <PLAN_DIR>/ (ensured)
