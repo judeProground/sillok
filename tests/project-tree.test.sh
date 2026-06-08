@@ -14,7 +14,7 @@ mkdir -p "$PROJ/src/service/abuse"
 mkdir -p "$PROJ/src/service/wallet"
 mkdir -p "$PROJ/src/service/v2/raffle"
 mkdir -p "$PROJ/src/service/v2/super-draw"
-mkdir -p "$PROJ/src/a/b/c/deep-feature"   # 5 levels deep (no depth cap)
+mkdir -p "$PROJ/src/a/b/c/deep-feature"   # depth 4 (4 slashes → 8-space indent), no depth cap
 mkdir -p "$PROJ/node_modules/lodash"
 mkdir -p "$PROJ/dist/assets"
 mkdir -p "$PROJ/.git/refs"

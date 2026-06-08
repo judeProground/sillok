@@ -349,7 +349,7 @@ only after a one-time confirmation.
    fi
    ```
 
-   When `skip-preserved`, skip the rest of this step.
+   When `skip-preserved`, **Step 8b is done — skip steps 2–6.**
 
 2. **Emit the directory tree (deterministic).**
 
@@ -365,6 +365,10 @@ only after a one-time confirmation.
      # leave labels.areas as []
    fi
    ```
+
+   When `$TREE` is empty, **Step 8b is done — skip steps 4–6.** Otherwise continue:
+   a non-empty tree always reaches step 6, which sets the final `AREA_STATUS`
+   (`areas-confirmed` or `none-detected`) so it never stays at its `fail` default.
 
 4. **Classify (LLM judgment — you do this, not a script).** Read `$TREE` and pick
    the **vertical business feature areas**, excluding horizontal technical layers:
@@ -391,16 +395,20 @@ only after a one-time confirmation.
      prompt and accept your proposed list as `$selected`. It is written to
      `labels.areas` (git-tracked, editable), so the user can adjust and re-bootstrap
      later. This preserves the auto-mode "never blocks" contract.
+   - **No vertical areas found (either mode):** set `selected=""` (empty) and
+     proceed — step 6 records `none-detected`.
 
-6. **Persist to config.**
+6. **Persist to config.** `$selected` is the confirmed/auto-accepted area names,
+   one per line (empty when none).
 
    ```bash
+   selected="${selected:-}"   # ensure defined even if classification was skipped
    if [[ -n "$selected" ]]; then
-     selected_json=$(printf '%s\n' $selected | jq -R . | jq -s .)
+     selected_json=$(printf '%s\n' "$selected" | jq -R . | jq -s .)
      tmp=$(mktemp)
      jq --argjson areas "$selected_json" '.labels.areas = $areas' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
      AREA_STATUS=areas-confirmed
-     AREA_COUNT=$(printf '%s\n' $selected | wc -l | tr -d ' ')
+     AREA_COUNT=$(printf '%s\n' "$selected" | wc -l | tr -d ' ')
    else
      AREA_STATUS=none-detected
    fi
@@ -539,7 +547,7 @@ Created:
 |---|---|
 | `areas-confirmed` | `📊 Area labels confirmed: area:<n1>, area:<n2>, …` followed by the "Not what you want?" guide below. |
 | `none-detected` | `📊 No vertical feature areas detected — no area labels created.` |
-| `skip-preserved` | `📊 labels.areas already curated (<N> entries) — detection skipped to preserve user edits.` |
+| `skip-preserved` | `📊 labels.areas already curated ($EXISTING_AREAS entries) — detection skipped to preserve user edits.` |
 | `fail` | `📊 Area detection FAILED — re-run manually: bash <plugin>/scripts/project-tree.sh "$PROJECT_ROOT"` |
 
 The "Not what you want?" guide (for `areas-confirmed` only):
