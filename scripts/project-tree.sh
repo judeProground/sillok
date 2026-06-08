@@ -57,15 +57,10 @@ while IFS= read -r path; do
     echo "# … truncated ($((total - LINE_CAP)) more dirs)"
     break
   fi
-  off=$(( ${#ROOT} + 1 ))
-  rel="${path:off}"
-  depth=$(printf '%s' "$rel" | tr -cd '/' | wc -c | tr -d ' ')
-  base="${rel##*/}"
-  indent=""
-  i=0
-  while [[ $i -lt $depth ]]; do
-    indent="$indent  "
-    i=$((i + 1))
-  done
-  printf '%s%s\n' "$indent" "$base"
+  # Strip the root prefix (quoted = literal, glob-safe; ROOT has no trailing slash).
+  rel="${path#"$ROOT"/}"
+  # depth = number of '/' separators in the relative path (pure bash, no subshell).
+  slashes="${rel//[!\/]/}"
+  depth=${#slashes}
+  printf '%*s%s\n' "$((depth * 2))" '' "${rel##*/}"
 done < "$TALLY"

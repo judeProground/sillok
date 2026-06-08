@@ -383,6 +383,9 @@ only after a one-time confirmation.
    - **Descend, don't label (wrappers):** grouping/version dirs — `src`, `app`,
      `apps`, `packages`, `modules`, `features`, `service`, `services`, `v1`, `v2`,
      … — are not areas themselves; treat their children as candidates.
+     (`service`/`services` is dual-listed on purpose: descend into it when it holds
+     business-named children like `service/wallet/`; treat it as an excluded leaf
+     layer when it sits beside `controller`/`dto`. Judge by its children.)
    - Normalize each name to kebab-case (lowercase, `_`→`-`).
    - If no clear vertical slices exist, the list is empty (treat as `none-detected`).
 
