@@ -28,6 +28,7 @@ if [[ ! -d "$ROOT" ]]; then
   echo "[project-tree] project root does not exist: $ROOT" >&2
   exit 1
 fi
+ROOT="${ROOT%/}"
 
 LINE_CAP=500
 
@@ -37,10 +38,10 @@ LINE_CAP=500
 TALLY=$(mktemp)
 trap 'rm -f "$TALLY"' EXIT
 
-find "$ROOT" -mindepth 1 \
+{ find "$ROOT" -mindepth 1 \
   \( -name node_modules -o -name dist -o -name build -o -name coverage \
      -o -name out -o -name vendor -o -name public -o -name '.*' \) -prune \
-  -o -type d -print 2>/dev/null \
+  -o -type d -print 2>/dev/null || true; } \
   | sort > "$TALLY"
 
 if [[ ! -s "$TALLY" ]]; then
@@ -56,7 +57,8 @@ while IFS= read -r path; do
     echo "# … truncated ($((total - LINE_CAP)) more dirs)"
     break
   fi
-  rel="${path#$ROOT/}"
+  off=$(( ${#ROOT} + 1 ))
+  rel="${path:off}"
   depth=$(printf '%s' "$rel" | tr -cd '/' | wc -c | tr -d ' ')
   base="${rel##*/}"
   indent=""

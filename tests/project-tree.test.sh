@@ -65,5 +65,23 @@ jout=$(bash "$SCRIPT" "$JUNK")
 rm -rf "$JUNK"
 pass "junk-only project → empty output"
 
+echo "test: unreadable subdir → readable dirs still emitted, exit 0 (regression)"
+PERM=$(mktemp -d)
+mkdir -p "$PERM/src/visible" "$PERM/src/locked"
+chmod 000 "$PERM/src/locked"
+set +e
+permout=$(bash "$SCRIPT" "$PERM"); permrc=$?
+set -e
+chmod 755 "$PERM/src/locked"   # restore so cleanup can remove it
+rm -rf "$PERM"
+[[ "$permrc" -eq 0 ]] || fail "unreadable subdir: expected exit 0, got $permrc"
+printf '%s\n' "$permout" | grep -qx "  visible" || fail "unreadable subdir: readable sibling 'visible' missing from output"
+pass "resilient to unreadable subdir"
+
+echo "test: trailing-slash root arg → correct depth-0 basename (regression)"
+tsout=$(bash "$SCRIPT" "$PROJ/")
+printf '%s\n' "$tsout" | grep -qx "src" || fail "trailing-slash root: 'src' should be depth-0 (no indent), got: $(printf '%s\n' "$tsout" | grep -n src)"
+pass "trailing-slash root normalized"
+
 echo
 echo "All project-tree.sh tests passed."
