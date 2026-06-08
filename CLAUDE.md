@@ -17,7 +17,7 @@ Do **not** run `/sillok-init` inside this repo — it's for downstream projects,
 for t in tests/*.test.sh; do echo "=== $(basename $t) ==="; bash "$t" 2>&1 | tail -2; done
 
 # Run a single test
-bash tests/pick-areas.test.sh
+bash tests/project-tree.test.sh
 
 # Smoke-test a script end-to-end against a temp project (most tests do this internally)
 # All scripts expect CLAUDE_PLUGIN_ROOT to point at the repo root:
@@ -88,9 +88,9 @@ The `sillok-shim: true` frontmatter marker identifies sillok-managed shims for i
 
 ### Area-label detection
 
-`/sillok-init` Step 8b scans the project across five layout families (FSD `src/{entities,features,widgets,pages,slices,modules}/<name>/`, `app/<route>/`, `modules/<name>/`, `packages/<name>/`, `apps/<name>/`) and auto-picks slice candidates for `area:<name>` GitHub labels (filter: rank ≥ 2 AND top 15). Existing non-empty `labels.areas` in config is preserved on re-init.
+`/sillok-init` Step 8b detects `area:<name>` GitHub labels with a **hybrid**: `scripts/project-tree.sh` deterministically emits the project's pruned directory tree (build/tool junk and dot-dirs removed, dirs only, NO depth cap, ~500-line backstop with a truncation marker), then the LLM running the command classifies which dirs are **vertical business areas** (`auth`, `wallet`, `cash-withdrawal`) vs **horizontal technical layers** (`controller`, `dto`, `entity`, `guard`, …) and proposes the area list. GitHub labels are created only after a one-time confirmation (auto-accepted under auto-mode). Existing non-empty `labels.areas` is preserved on re-init.
 
-Detection runs in `scripts/detect-slices.sh`; the rank-filter lives in `scripts/pick-areas.sh` (NOT inline awk in the spec). Reason: agent-readers of markdown specs strip bare `$1` / `$2` tokens in inline code blocks, corrupting any inline awk filter into `'... >= 2 { print }'`. Keep `$N`-using awk inside scripts that the agent calls, not reads. See #11 for the bug that surfaced this.
+Why hybrid: a fixed-path heuristic can't tell a business domain from a technical layer and breaks on unanticipated layouts (`src/service/` singular, `src/service/v2/` nesting). Structure-gathering is deterministic and belongs in bash; domain-vs-layer is judgment and belongs in the LLM command. The classifier output is reviewed (confirm gate) and lands in a git-tracked, editable config, so LLM non-determinism is bounded. See #39 for the bug that surfaced this; the deleted `detect-slices.sh`/`pick-areas.sh` were the rank-threshold approach that this replaces.
 
 ### v2: Issue Types + Projects v2 + Development panel
 
@@ -110,10 +110,9 @@ v2.0 replaced label-based type/stage tracking with GitHub-native primitives:
 | `precompute-{start,design,execute,end}.sh` | State derivation for each slash command |
 | `setup-feature-worktree.sh` | Creates worktree + branch for a new issue |
 | `bootstrap-labels.sh` | Idempotent GitHub label creation |
-| `detect-slices.sh` | Scans project structure for area-label candidates |
+| `project-tree.sh` | Emits a pruned directory tree (junk-removed, no depth cap) for area-label classification |
 | `detect-stack.sh` | Detects project tech stack (language, framework) |
 | `parse-project-url.sh` | Parse a GitHub Project v2 URL into owner+number (used by /sillok-init empty-case prompt) |
-| `pick-areas.sh` | Rank-filters slice candidates (top 15, rank ≥ 2) |
 | `slug-from-title.sh` | Converts issue title → kebab-case branch slug |
 | `write-shim-commands.sh` | Writes shortcut command shims during init |
 | `migrate-v1-to-v2.sh` | Migrates a repo from v1 (label-based types/stages) to v2 (Issue Types + Projects v2) |
