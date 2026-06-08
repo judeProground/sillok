@@ -1,12 +1,12 @@
 ---
-description: Bootstrap a project for sillok. Detects repo, base branch, package manager, gitignored config files, and branch prefix automatically. Asks at most one question (project URL, only when auto-detection finds no board). Idempotent.
+description: Bootstrap a project for sillok. Detects repo, base branch, package manager, gitignored config files, and branch prefix automatically. Asks at most two questions (project URL when no board is detected; auto-detected area labels when candidates found), and nothing under auto-mode. Idempotent.
 ---
 
 You are running `/sillok-init` to bootstrap the current project for sillok.
 
-**This command takes no arguments and asks at most one question** (a project URL, only when auto-detection yields nothing — see Step 2a-2). If detection of any field fails, the field is left empty in the generated config and a warning is printed; the user edits `.claude/sillok/workflow.config.json` afterward.
+**This command takes no arguments and asks at most two questions** — a project URL (only when auto-detection yields nothing — see Step 2a-2) and the auto-detected area labels (Step 8b, interactive runs only). Under auto-mode it asks nothing. If detection of any field fails, the field is left empty in the generated config and a warning is printed; the user edits `.claude/sillok/workflow.config.json` afterward.
 
-**Auto-mode contract:** every step below MUST execute. Do not skip Step 7b (shim install) or Step 8b (area auto-pick) even when invoked by an auto-mode agent — both are deterministic, write only to plugin-managed paths, and have idempotent safeguards documented in their own headers.
+**Auto-mode contract:** every step below MUST execute. Do not skip Step 7b (shim install) or Step 8b (area detection) even when invoked by an auto-mode agent. Step 7b is deterministic. Step 8b emits a deterministic tree (`project-tree.sh`), then classifies and confirms; under auto-mode the confirmation auto-accepts the classified list (written to the git-tracked config), so it never blocks. Both write only to plugin-managed paths and have idempotent safeguards documented in their own headers.
 
 ## Step 1: Verify prerequisites
 
@@ -331,65 +331,85 @@ if [[ "$CLAUDE_MD_STATUS" == "ok" ]] && ! grep -q "## Sillok workflow rules" "$C
 fi
 ```
 
-## Step 8b: Auto-pick area labels
+## Step 8b: Auto-detect area labels (hybrid — tree → classify → confirm)
 
-Scan the project for vertical-slice candidates and auto-select a conservative subset for `area:<name>` GitHub labels. This step is **non-interactive** (no `AskUserQuestion` call). The user can adjust the selection afterward by editing `labels.areas` in `workflow.config.json` or by asking Claude to do it in natural language.
+Detect vertical business feature areas for `area:<name>` GitHub labels. The
+deterministic part (emit the project's directory structure) is done by
+`project-tree.sh`; the judgment part (which dirs are business domains vs. technical
+layers) is done by **you**, the LLM running this command; GitHub labels are created
+only after a one-time confirmation.
 
-1. **Skip if user already curated areas.** Re-running init on a project where `labels.areas` is already non-empty should NOT clobber the user's curation:
+1. **Skip if user already curated areas.** Re-running init on a project where
+   `labels.areas` is already non-empty must NOT clobber the user's curation:
 
    ```bash
    EXISTING_AREAS=$(jq -r '(.labels.areas // [])[]' "$CFG" 2>/dev/null | wc -l | tr -d ' ')
    if [[ "$EXISTING_AREAS" -gt 0 ]]; then
      AREA_STATUS=skip-preserved
-     # leave $CFG untouched; report in summary
-   else
-     ...continue to step 2...
    fi
    ```
 
-2. **Detect candidates.**
+   When `skip-preserved`, skip the rest of this step.
+
+2. **Emit the directory tree (deterministic).**
 
    ```bash
-   CANDIDATES=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/detect-slices.sh" "$PROJECT_ROOT" 2>/dev/null || true)
+   TREE=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/project-tree.sh" "$PROJECT_ROOT" 2>/dev/null || true)
    ```
 
-3. **No candidates → silent ok.**
+3. **No tree → no areas.**
 
    ```bash
-   if [[ -z "$CANDIDATES" ]]; then
+   if [[ -z "$TREE" ]]; then
      AREA_STATUS=none-detected
      # leave labels.areas as []
    fi
    ```
 
-4. **Auto-pick with two filters:**
+4. **Classify (LLM judgment — you do this, not a script).** Read `$TREE` and pick
+   the **vertical business feature areas**, excluding horizontal technical layers:
 
-   - **Rank ≥ 2.** A candidate must appear in at least 2 layout families. Names that appear only once are excluded as low-confidence noise.
-   - **Top 15.** Cap the resulting list so a sprawling project doesn't generate 50+ noisy labels.
+   - **Include (vertical):** business/domain nouns — `auth`, `wallet`, `raffle`,
+     `cash-withdrawal`, `abuse`, `notice`, `dashboard`, …
+   - **Exclude (horizontal):** technical role/layer dirs — `controller`, `service`,
+     `dto`, `entity`, `repository`, `dao`, `vo`, `guard`, `pipe`, `interceptor`,
+     `filter`, `middleware`, `decorator`, `module`, `command`, `query`, `handler`,
+     `common`, `shared`, `utils`, `helpers`, `config`, `constant`, `enum`, `type`,
+     `model`, `models`, `api`, …
+   - **Descend, don't label (wrappers):** grouping/version dirs — `src`, `app`,
+     `apps`, `packages`, `modules`, `features`, `service`, `services`, `v1`, `v2`,
+     … — are not areas themselves; treat their children as candidates.
+   - Normalize each name to kebab-case (lowercase, `_`→`-`).
+   - If no clear vertical slices exist, the list is empty (treat as `none-detected`).
 
-   The filter lives in `scripts/pick-areas.sh` (not inline awk) because agent-readers of this markdown spec strip bare `$N` field references when they appear in code blocks, corrupting an inline `awk` filter.
+5. **Confirm before creating (one-time gate).**
 
-   ```bash
-   selected=$(printf '%s\n' "$CANDIDATES" | bash "${CLAUDE_PLUGIN_ROOT}/scripts/pick-areas.sh")
-   ```
+   - **Interactive (a human is driving this init):** present the proposed area list
+     and ask the user to confirm or edit it (via `AskUserQuestion`). Use their
+     final list as `$selected` (one name per line).
+   - **Auto-mode (invoked by an automation agent, non-interactive):** skip the
+     prompt and accept your proposed list as `$selected`. It is written to
+     `labels.areas` (git-tracked, editable), so the user can adjust and re-bootstrap
+     later. This preserves the auto-mode "never blocks" contract.
 
-5. **Persist to config.**
+6. **Persist to config.**
 
    ```bash
    if [[ -n "$selected" ]]; then
      selected_json=$(printf '%s\n' $selected | jq -R . | jq -s .)
      tmp=$(mktemp)
      jq --argjson areas "$selected_json" '.labels.areas = $areas' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
-     AREA_STATUS=auto-picked
+     AREA_STATUS=areas-confirmed
      AREA_COUNT=$(printf '%s\n' $selected | wc -l | tr -d ' ')
    else
-     AREA_STATUS=none-confident   # candidates existed but all rank 1
+     AREA_STATUS=none-detected
    fi
    ```
 
-6. **Surface the result in Step 11** with the names listed and a follow-up guide on how to adjust.
+7. **Surface the result in Step 11.**
 
-`AREA_STATUS` is one of: `auto-picked`, `none-detected`, `none-confident`, `skip-preserved`. Each maps to a distinct summary line (see Step 11).
+`AREA_STATUS` is one of: `areas-confirmed`, `none-detected`, `skip-preserved`,
+`fail`. Each maps to a distinct summary line (see Step 11).
 
 ## Step 9: Bootstrap labels
 
@@ -473,7 +493,7 @@ Compute the headline status icon from sub-step outcomes:
 #   RULES_STATUS    = ok | fail                    (Step 7)
 #   SHIM_STATUS     = ok | fail                    (Step 7b)
 #   CLAUDE_MD_STATUS= ok | fail                    (Step 8)
-#   AREA_STATUS     = auto-picked | none-detected | none-confident | skip-preserved | fail   (Step 8b)
+#   AREA_STATUS     = areas-confirmed | none-detected | skip-preserved | fail   (Step 8b)
 #   LABELS_STATUS   = ok | skipped-no-repo | fail  (Step 9)
 #   TYPES_STATUS    = ok | missing | skip-user-repo | fail   (Step 2b)
 #   PROJECT_STATUS  = ok | incomplete | unconfigured | fail   (Step 9b)
@@ -517,13 +537,12 @@ Created:
 
 | `AREA_STATUS` | Output |
 |---|---|
-| `auto-picked` | `📊 Area labels auto-selected (rank ≥ 2, top 15): area:<n1>, area:<n2>, …` followed by the "Not what you want?" guide below. |
-| `none-detected` | `📊 No vertical-slice layout detected — no area labels created.` |
-| `none-confident` | `📊 Slice candidates found but all rank 1 (single-family) — skipped auto-pick.` |
-| `skip-preserved` | `📊 labels.areas already curated (<N> entries) — auto-pick skipped to preserve user edits.` |
-| `fail` | `📊 Area auto-pick FAILED — re-run manually: bash <plugin>/scripts/detect-slices.sh "$PROJECT_ROOT"` |
+| `areas-confirmed` | `📊 Area labels confirmed: area:<n1>, area:<n2>, …` followed by the "Not what you want?" guide below. |
+| `none-detected` | `📊 No vertical feature areas detected — no area labels created.` |
+| `skip-preserved` | `📊 labels.areas already curated (<N> entries) — detection skipped to preserve user edits.` |
+| `fail` | `📊 Area detection FAILED — re-run manually: bash <plugin>/scripts/project-tree.sh "$PROJECT_ROOT"` |
 
-The "Not what you want?" guide (for `auto-picked` only):
+The "Not what you want?" guide (for `areas-confirmed` only):
 
 ```
 Not what you want?
