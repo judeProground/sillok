@@ -6,6 +6,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.4.0] — 2026-06-09
+
+### Added
+- **`/sillok-init` auto-migrates config and rules on re-run (#34).** Re-running init now deep-merges new template keys into an existing `workflow.config.json` (preserving user values and arrays) via `scripts/migrate-config.sh`, and overwrites rule files from `templates/rules/` when their content differs via `scripts/refresh-rules.sh`. Previously a re-run left existing files untouched, so consumer projects could not pick up plugin upgrades without manual edits.
+
+### Changed
+- **Area-label detection reworked into a hybrid tree + LLM + confirm flow (#39).** Replaced the fixed layout-family scanner (`detect-slices.sh`) and rank-threshold filter (`pick-areas.sh`) with `scripts/project-tree.sh` — a deterministic directory-tree emitter (no fixed families, no depth cap) — plus LLM classification of vertical business areas vs. horizontal technical layers and a one-time confirmation before any `area:*` label is created (auto-accepted under auto-mode). Pruning combines a built-in junk set (incl. `target`, `__pycache__`, `venv`, `Pods`, and React Native's committed `android`/`ios`), all dot-dirs, and `.gitignore`-based exclusion via `git check-ignore` inside a git repo. This fixes detection on flat/backend layouts where features live under a singular `src/service/<feature>` or nested `src/service/v2/<feature>` and were previously labeled as layers (`area:controller`, `area:dto`, …).
+- **`/sillok-end` no longer gates on plan-checkbox counts (#37).** Open `- [ ]` items in the plan file no longer block PR creation (subagent-driven execution doesn't tick them); the whole-branch verify gate covers completeness instead.
+
+### Fixed
+- **`/sillok-init` project auto-detection for projects owned by a different org than the repo (#35).** init now resolves a GitHub Project v2 even when it lives under a different owner than the repo; adds `scripts/parse-project-url.sh` and a single project-URL prompt as a fallback when auto-detection finds no board.
+- **Library sourcing broke under zsh (#37).** `scripts/lib/*` sourcing is now zsh-safe, so commands work under both bash and zsh.
+
 ## [2.3.0] — 2026-05-28
 
 ### Fixed
