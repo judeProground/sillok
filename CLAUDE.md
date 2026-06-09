@@ -10,6 +10,8 @@ Concretely, the plugin is six slash commands under `commands/`, three skills und
 
 Do **not** run `/sillok-init` inside this repo — it's for downstream projects, not for the plugin's own development.
 
+When running sillok commands or `precompute-*.sh` from a **worktree** in this repo, copy the (gitignored) self-hosting config in first — `cp .claude/sillok/workflow.config.json <worktree>/.claude/sillok/` — otherwise `sillok_config` reads nothing and scripts abort with "required config key not set".
+
 ## Common commands
 
 ```bash
@@ -134,6 +136,7 @@ Tests live in `tests/*.test.sh`. Each test is a standalone bash script that crea
 - **macOS bash 3.2 compatibility.** No `mapfile`, no `readarray`, no `${var,,}` lowercasing. Use the `while IFS= read -r line; do arr+=("$line"); done < <(cmd)` pattern instead. The example is at the top of `scripts/lib/config.sh`.
 - All scripts use `set -euo pipefail`.
 - All scripts that read config source `lib/config.sh` via `SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); source "$SCRIPT_DIR/lib/config.sh"` (NOT relative to `${CLAUDE_PLUGIN_ROOT}` — scripts must work when invoked directly from tests).
+- **Sourced libs may run under zsh** (Claude Code's Bash tool isn't always bash). The 3 sourced libs (`project`/`dev-link`/`issue-types`.sh) use `${BASH_SOURCE[0]:-$0}` (bare `${BASH_SOURCE[0]}` is unset in zsh under `set -u`) and avoid `BASH_REMATCH` (empty in zsh — use parameter expansion). `tests/lib-zsh-compat.test.sh` guards this. Standalone scripts (shebang) always run under bash, so bare `${BASH_SOURCE[0]}` is fine there.
 - `.editorconfig`: 2-space indent, LF endings, trim trailing whitespace, final newline. Markdown files keep trailing whitespace (intentional for line breaks).
 
 ## Release process

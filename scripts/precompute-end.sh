@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # sillok — precompute deterministic state for /sillok-end.
-# Outputs branch + mode + issue meta + project status + plan stats (task completion)
+# Outputs branch + mode + issue meta + project status + plan path
 # + existing PR + parent reference + CWD check.
 set -euo pipefail
 
@@ -130,14 +130,6 @@ if [[ -n "$prefix_regex" && "$branch" =~ ^${prefix_regex}([0-9]+)-(.+)$ ]]; then
     plan_match=$(ls "$PLAN_DIR"/*-"$slug".md 2>/dev/null | sort | tail -1 || true)
     if [[ -n "$plan_match" ]]; then
       echo "- Path: \`$plan_match\`"
-      open_count=$(grep -c '^- \[ \]' "$plan_match" 2>/dev/null || true)
-      done_count=$(grep -c '^- \[x\]' "$plan_match" 2>/dev/null || true)
-      open_count=${open_count:-0}
-      done_count=${done_count:-0}
-      echo "- Tasks: $done_count done / $open_count open"
-      if [[ "$open_count" != "0" ]]; then
-        echo "- ⚠️  $open_count open task(s) — confirm with user before proceeding (allowed to punt to follow-up)."
-      fi
     else
       echo "- ⚠️  No plan found at \`$PLAN_DIR/*-$slug.md\`. ABORT or run \`/sillok-execute\` first."
     fi

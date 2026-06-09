@@ -4,7 +4,7 @@
 # panel shows linked branches (not just PRs).
 set -euo pipefail
 
-_SILLOK_LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+_SILLOK_LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)
 # shellcheck source=config.sh
 source "$_SILLOK_LIB_DIR/config.sh"
 
