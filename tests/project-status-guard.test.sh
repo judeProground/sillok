@@ -102,5 +102,28 @@ calls=$(wc -l < "$MARKER" | tr -d ' ')
 [[ "$calls" == "1" ]] || fail "expected exactly 1 gh call, got $calls"
 pass "clean ids: rc 0, gh called exactly once"
 
+# --- case (d): empty item_id (issue not on board) ------------------------
+echo "test: empty item_id is refused before any gh call"
+PROJ="$TMP_DIR/case-d"
+make_project "$PROJ"
+MARKER="$TMP_DIR/case-d.marker"
+ERR="$TMP_DIR/case-d.err"
+set +e
+bash -c "
+  cd '$PROJ'
+  source '$REPO_ROOT/scripts/lib/project.sh'
+  sillok_project_id() { printf 'PVT_ok'; }
+  sillok_project_field_id() { printf 'PVTSSF_ok'; }
+  sillok_project_option_id() { printf 'abc123'; }
+  gh() { echo GH_CALLED >> '$MARKER'; return 9; }
+  sillok_project_status_set '' todo
+" 2>"$ERR"
+rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "expected rc 1 for empty item_id, got $rc (stderr: $(cat "$ERR"))"
+grep -q "could not resolve" "$ERR" || fail "expected 'could not resolve' in stderr, got: $(cat "$ERR")"
+[[ ! -f "$MARKER" ]] || fail "gh was called despite empty item_id"
+pass "empty item_id: rc 1, 'could not resolve' on stderr, gh never called"
+
 echo
 echo "All project-status-guard tests passed."
