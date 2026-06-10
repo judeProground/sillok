@@ -330,7 +330,9 @@ ABORT cleanly (no side effects committed) if:
 
 For any partial failure mid-promotion (e.g. branch rename succeeded but push failed), surface the exact state and the command to recover manually. Do NOT attempt to auto-rollback complex states.
 
-Stage complete — invoke `sillok:workflow` to decide the next step.
+---
+
+On either success path (Step 2.11 or Step 3.6 summary printed): stage complete — invoke `sillok:workflow` to decide the next step.
 
 ## Integration
 
