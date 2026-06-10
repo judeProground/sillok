@@ -1,6 +1,6 @@
 ---
 name: end
-description: Push branch, create PR per pr-convention, set project status to In QA on the active sub-issue, update parent legacy checkbox if any. Does NOT auto-merge. Done note embedded in PR body Summary section.
+description: Internal sillok stage skill — enter via the /sillok-end command or a sillok:workflow handoff; for natural-language intent invoke sillok:workflow instead. Pushes the branch, creates the PR per pr-convention, sets project status to In QA on the active sub-issue, updates the parent legacy checkbox if any; never auto-merges (done note embedded in the PR body Summary section).
 user-invocable: false
 ---
 
@@ -74,6 +74,8 @@ All checks below were already performed by precompute (step 1). Apply the result
 2. **Plan exists.** Required. precompute reported the path or `⚠️  No plan found` (ABORT in that case).
 3. **Working tree.** precompute listed dirty files (if any). If dirty: prompt "Working tree has uncommitted changes (see above). Commit first / stash / abort? (commit / stash / abort)". Do NOT auto-stash silently — the user must see and decide.
 4. **Existing PR.** precompute reported PR URL + state if any. If found: prompt "PR `<URL>` already exists. (a) Update body/labels only, (b) Skip and exit. Choice?".
+
+**Full-auto note:** under `sillok:workflow` full-auto, the dirty-tree (check 3) and existing-PR (check 4) prompts are failure-demotion events — stop the chain, report the state, and fall back to propose mode. Never auto-bulldoze past them (no silent stash, no silent PR overwrite).
 
 ## Step 3: Push branch
 

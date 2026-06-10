@@ -2,12 +2,15 @@
 # Lint: stage-skill SKILL.md frontmatter contract (story #15, sub-issue #56).
 #
 # Stage skills (start/design/execute/end/story/init) must:
+#   - exist (all six landed with story #15 — absence is a hard failure)
 #   - have `name:` matching their directory name
 #   - declare `user-invocable: false` (single auto-fire entry point — design decision 8)
 #   - have a NEUTRAL description that does NOT start with "Use when"
+#   - carry the "Internal sillok stage" deferral marker in the description
+#     (entry is via the wrapper command or a sillok:workflow handoff — guards
+#     against action-shaped descriptions inviting direct invocation)
 # The orchestrator (skills/workflow) is the ONLY skill whose description starts
-# with "Use when". Stage dirs that don't exist yet are skipped, so this test
-# stays green as sub-issues C/D add more skills.
+# with "Use when".
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -27,7 +30,7 @@ description_of() {
 checked=0
 for stage in start design execute end story init; do
   skill_md="$REPO_ROOT/skills/$stage/SKILL.md"
-  [[ -f "$skill_md" ]] || continue
+  [[ -f "$skill_md" ]] || fail "skills/$stage/SKILL.md missing — all six stage skills must exist"
   checked=$((checked + 1))
 
   fm=$(frontmatter "$skill_md")
@@ -47,12 +50,15 @@ for stage in start design execute end story init; do
       ;;
   esac
 
+  case "$desc" in
+    *"Internal sillok stage"*) : ;;
+    *)
+      fail "skills/$stage/SKILL.md: description must contain the 'Internal sillok stage' deferral marker (enter via the wrapper command or a sillok:workflow handoff)"
+      ;;
+  esac
+
   pass "skills/$stage/SKILL.md frontmatter contract"
 done
-
-if [[ "$checked" -eq 0 ]]; then
-  echo "  note: no stage-skill dirs exist yet — nothing to lint"
-fi
 
 # Orchestrator: the ONLY skill with a "Use when..." trigger description.
 workflow_md="$REPO_ROOT/skills/workflow/SKILL.md"

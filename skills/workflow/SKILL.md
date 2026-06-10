@@ -28,6 +28,8 @@ Dot-path nested reads work. **An absent key == `false` == propose mode** — `co
 
 ## Step 3: Determine current position
 
+**Handoff override:** when this skill is invoked as a STAGE-COMPLETION handoff (a stage just finished and printed its outputs), the just-completed stage and its printed outputs OVERRIDE branch sniffing — you already know where you are. In particular, after `start`, `cd` into the worktree path that start printed BEFORE routing, then route to `design` — the current shell is still outside the new worktree, so branch sniffing would misroute. Branch sniffing below is the fallback for cold entry only.
+
 Derive position locally, then route:
 
 ```bash
@@ -42,7 +44,13 @@ if [ -n "$issue_num" ]; then echo "sillok branch: $branch → issue #$issue_num"
 ```
 
 - **No match (base branch or unrelated branch)** → position is *before the chain*: next stage is `start` (or `story` if the user wants a multi-issue composite).
-- **Match with type `story`** (`story/issue-N-*`) → on a story integration branch: next is either `start --parent N` (next sub-issue) or `end` in story-finalize mode (when all sub-issues are done).
+- **Match with type `story`** (`story/issue-N-*`) → on a story integration branch: next is either `start --parent N` (next sub-issue) or `end` in story-finalize mode. Do NOT judge readiness by sub-issue open/closed state — sub-issues stay OPEN until the story PR merges to base (sub-PRs target the integration branch and don't auto-close them). A sub-issue counts as **landed** when its PR into the integration branch is MERGED:
+
+  ```bash
+  gh pr list --repo "$REPO" --base "$branch" --state merged --json number,title,headRefName
+  ```
+
+  Route `end` (story-finalize) only when every planned sub-issue is landed: each sub-issue under the story has a merged PR into the integration branch, and no planned sub-issue lacks a branch/PR. If any sub-issue is unlanded, do NOT route story-finalize — route `start --parent N` or report the unlanded list. **In full-auto this check is a HARD GATE:** never auto-route story-finalize past an unlanded sub-issue.
 - **Match with any other type** (`feature/issue-N-*`, `bug/...`, etc.) → on an issue branch. Disambiguate by checking the issue body (spec/plan sections) and local plan files:
   - No spec on the issue → next is `design`.
   - Spec exists, no plan / tasks unchecked → next is `execute`.
@@ -69,17 +77,17 @@ story → (start --parent N → design → execute → end)  [repeat per sub-iss
 
 ## Stage routing
 
-Invoke the stage. Stage bodies currently live in the canonical slash commands — until the per-stage skills land (`sillok:start`, `sillok:design`, `sillok:execute`, `sillok:end`, `sillok:story`), routing means running the existing command for that stage:
+Invoke the stage skill directly:
 
 | Stage | Invoke |
 |-------|--------|
-| start | `/sillok-start` (with `--parent N` inside a story) |
-| design | `/sillok-design` |
-| execute | `/sillok-execute` |
-| end | `/sillok-end` (auto-detects story-finalize on `story/issue-N-*`) |
-| story | `/sillok-story` |
+| start | `sillok:start` (with `--parent N` inside a story) |
+| design | `sillok:design` |
+| execute | `sillok:execute` |
+| end | `sillok:end` (auto-detects story-finalize on `story/issue-N-*`) |
+| story | `sillok:story` |
 
-Treat the table as "invoke the stage" — when stage skills exist, the same routing targets them instead. Pass user-provided arguments through verbatim.
+Pass user-provided arguments through verbatim. The `/sillok-*` slash commands are the equivalent user-facing entry — thin wrappers that delegate to these same stage skills — so a user typing the command and this skill routing the stage land in the same place.
 
 ## Propose mode (default)
 
@@ -102,12 +110,22 @@ At chain ENTRY and at EVERY stage boundary, propose the next stage in one line a
 - verify-gate is NEVER skipped — `sillok:verify-gate` still runs at end-of-plan before `end`.
 - **Failure demotion:** on ANY failure — test failures, merge conflicts, gh/API errors — stop auto-progression immediately, report the current state (stage, issue, what failed), and fall back to propose mode for the rest of the session. Do not retry your way past a failure silently.
 
+### Stage-internal gates under full-auto
+
+When this skill invoked a stage in full-auto, the stage's INTERNAL confirmation gates are auto-resolved by Claude and recorded — they must not stall the chain:
+
+- **start** — accept the proposed issue title/type/labels (issue-settings confirm loop); accept the derived branch name; answer the epic-fit question `standalone` unless `--parent` was given; auto-create the missing sprint milestone.
+- **design** — the spec review loop and the Key-decisions loop are treated as Claude-confirmed; every such decision is recorded in the issue's `## Key decisions` per the decide+record rule above, and the In Design status set proceeds.
+- **end** — the dirty-tree and existing-PR prompts are NOT auto-resolved. They map to failure demotion: stop the chain, report the state, and demote to propose mode.
+
+Auto-resolution applies to confirmation gates only — verify-gate is never skipped.
+
 ## Integration
 
 Related skills and commands:
 
 - `/sillok-init` — one-time project setup (interactive, never routed by this skill)
-- `/sillok-start`, `/sillok-design`, `/sillok-execute`, `/sillok-end`, `/sillok-story` — canonical stage commands this skill routes between
+- `/sillok-start`, `/sillok-design`, `/sillok-execute`, `/sillok-end`, `/sillok-story` — thin wrapper commands over the stage skills (the user-facing entry; this skill routes to the skills directly)
 - `sillok:verify-gate` — mandatory whole-branch verification at end-of-plan, in both modes
 - `sillok:gh-issue-management` — issue conventions used inside the stages
 - `superpowers:brainstorming`, `superpowers:writing-plans`, `superpowers:subagent-driven-development` — chained inside design/execute stages; this skill never touches superpowers-internal handoffs

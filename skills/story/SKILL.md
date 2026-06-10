@@ -1,6 +1,6 @@
 ---
 name: story
-description: Create or promote-to a story — always backed by a real integration branch and worktree. From a non-sillok branch creates a fresh story; from inside a sillok feature/bug/improvement/infra branch offers promotion of the current issue. A story is an in-repo composite (parent tracking issue + integration branch + worktree) typed `Story` on GitHub.
+description: Internal sillok stage skill — enter via the /sillok-story command or a sillok:workflow handoff; for natural-language intent invoke sillok:workflow instead. Creates or promotes-to a story — always backed by a real integration branch and worktree; from a non-sillok branch creates a fresh story, from inside a sillok feature/bug/improvement/infra branch offers promotion of the current issue. A story is an in-repo composite (parent tracking issue + integration branch + worktree) typed `Story` on GitHub.
 user-invocable: false
 ---
 
@@ -160,11 +160,8 @@ Used when the user is on `main`, an unrelated branch, or a fresh worktree.
 
     Issue: <URL>
     Branch: <story_branch>
-    Worktree: <worktree_path>
-
-    Next:
-    - cd <worktree_path>
-    - /sillok-start --parent <N>   to add a sub-feature
+    Worktree: <worktree_path> — the next stage runs from there
+    Sub-features: added via the start stage with --parent <N> (orchestrator-routed)
     ```
 
 ## Step 3: Promotion (current branch is a sillok feature/bug/improvement/infra)
@@ -315,9 +312,7 @@ Used when the user is in the middle of a non-story work-unit branch that turned 
    Branch renamed: $branch → $story_branch
    Issue body: rewritten to story template
    ${stash_handled:+Sub-feature created: <URL>}
-
-   Next:
-   - /sillok-start --parent $N  to add more sub-features
+   Sub-features: added via the start stage with --parent $N (orchestrator-routed)
    ```
 
 ## Step 4: Abort conditions
@@ -330,9 +325,9 @@ ABORT cleanly (no side effects committed) if:
 
 For any partial failure mid-promotion (e.g. branch rename succeeded but push failed), surface the exact state and the command to recover manually. Do NOT attempt to auto-rollback complex states.
 
----
+## Handoff
 
-On either success path (Step 2.11 or Step 3.6 summary printed): stage complete — invoke `sillok:workflow` to decide the next step.
+On either success path (Step 2.11 or Step 3.6 summary printed): stage complete — cd into the printed worktree first (standalone creation; promotion stays on the renamed branch in place), then invoke `sillok:workflow` to decide the next step.
 
 ## Integration
 

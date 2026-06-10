@@ -1,6 +1,6 @@
 ---
 name: start
-description: Bootstrap a new feature — create GH issue with Issue Type + self-assign + project status Todo + linked branch. Optional --parent N (same-repo) or owner/repo#N (cross-repo PRD epic).
+description: Internal sillok stage skill — enter via the /sillok-start command or a sillok:workflow handoff; for natural-language intent invoke sillok:workflow instead. Creates the GH issue (Issue Type + self-assign + project status Todo + linked branch) plus branch and worktree for a new work unit; optional --parent N (same-repo) or owner/repo#N (cross-repo PRD epic).
 user-invocable: false
 ---
 
@@ -32,6 +32,8 @@ Read the markdown block it prints. Show it back to the user as the current state
 
 If the output contains `ABORT:` (you're already on a branch matching the configured `branchPrefix`), surface that line as a hard stop with: "You're already on `<branch>` for issue #<N>. Finish or stash current work before starting a new feature." Do not proceed.
 
+If the output contains `STORY-BRANCH:` instead, you're on a story integration branch — that's the sanctioned starting point for the story loop. Proceed, treating `--parent <N>` (the story issue) as the default parent for Step 4.
+
 Umbrella branches (`feature/<name>`) are OK as starting points — `/sillok-start` from any umbrella branch is supported, and the new sub-issue's branch will still be cut from `origin/<baseBranch>` (configured), not from the umbrella.
 
 ## Language
@@ -43,6 +45,17 @@ Read the `### Language` section from the precompute output (step 2).
 - `en` → write all generated content in English.
 
 Section headers (`## Summary`, `## Design`, `Parent:` etc.) and GitHub API field names stay in English regardless of language setting — only prose content follows the language preference.
+
+### Full-auto mode
+
+When this stage is invoked via `sillok:workflow` in full-auto mode (`automation.fullAuto: true`), the four confirmation gates below are auto-resolved per the workflow contract — do not prompt:
+
+- Step 4 epic-fit question → answer `standalone` unless `--parent` was given.
+- Step 5 missing sprint milestone → create it without asking.
+- Step 6 issue-settings confirm loop → accept the proposed title/type/labels.
+- Step 9 branch-name confirm → accept the derived branch name.
+
+Record each auto-resolved choice in the created issue (the settings land in the issue body; non-obvious calls go under `## Key decisions` per the workflow's decide+record rule).
 
 ## Step 3: PRD intake
 
@@ -244,13 +257,14 @@ Print:
 
 - Issue URL: `<issue_url>`
 - Branch: `<branch>`
-- Worktree path: `.worktrees/<slug>`
+- Worktree: `.worktrees/<slug>` — the next stage runs from there
 - Project item: `<ITEM_ID>`
 - Status: `Todo`
 - Linked branch: ✓
-- Handoff: "Next: `cd .worktrees/<slug>` then run `/sillok-design` to write the spec."
 
-Stage complete — invoke `sillok:workflow` to decide the next step.
+## Handoff
+
+Stage complete — cd into the printed worktree (`.worktrees/<slug>`), then invoke `sillok:workflow` to decide the next step.
 
 ## Integration
 

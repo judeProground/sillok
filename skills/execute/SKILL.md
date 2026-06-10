@@ -1,6 +1,6 @@
 ---
 name: execute
-description: Write the plan from the spec, dispatch subagent-driven execution, and run a final whole-branch review at the end. Per-task reviews are delegated to superpowers; only the end-of-plan review is mandatory. Sets project status to In Progress when plan saved. Auto-answers writing-plans handoff with subagent-driven (no re-prompt).
+description: Internal sillok stage skill — enter via the /sillok-execute command or a sillok:workflow handoff; for natural-language intent invoke sillok:workflow instead. Writes the plan from the spec, dispatches subagent-driven execution, and runs a final whole-branch review at the end (per-task reviews are delegated to superpowers; only the end-of-plan review is mandatory); sets project status to In Progress when the plan is saved and auto-answers the writing-plans handoff with subagent-driven.
 user-invocable: false
 ---
 

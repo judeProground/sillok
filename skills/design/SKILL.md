@@ -1,6 +1,6 @@
 ---
 name: design
-description: Brainstorm and write the spec for the current issue. Saves spec to <SPEC_DIR>/, pastes the full spec content into the issue body, sets project status to In Design AFTER user reviews and confirms the spec content.
+description: Internal sillok stage skill — enter via the /sillok-design command or a sillok:workflow handoff; for natural-language intent invoke sillok:workflow instead. Brainstorms and writes the spec for the current issue, saves it to <SPEC_DIR>/, pastes the full spec content into the issue body, and sets project status to In Design after the spec content is reviewed and confirmed.
 user-invocable: false
 ---
 
@@ -100,6 +100,8 @@ The brainstorming skill drives the discussion. Follow its instructions.
 ### Full-auto mode
 
 When this stage is invoked via `sillok:workflow` in full-auto mode (`automation.fullAuto: true`), do not seed brainstorming for interactive questioning. Instead, seed `superpowers:brainstorming` with: "decide judgment calls yourself and record EVERY decision in the issue's `## Key decisions` section". The spec pasted into the issue body (Step 8) remains the canonical record.
+
+The downstream confirmation gates are also covered: Step 6 (spec review loop), Step 7 (In Design only after confirmation), and Step 7.5 (key-decisions loop) are treated as Claude-confirmed under full-auto — the user confirmations are replaced by recording every decision into the issue's `## Key decisions` section, and the Step 7 status set proceeds without waiting.
 
 ## Step 5: Save spec
 

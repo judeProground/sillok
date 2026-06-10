@@ -1,6 +1,6 @@
 ---
 name: init
-description: Bootstrap a project for sillok. Detects repo, base branch, package manager, gitignored config files, and branch prefix automatically. Asks at most two questions (project URL when no board is detected; auto-detected area labels when candidates found), and nothing under auto-mode. Idempotent.
+description: Internal sillok stage skill — enter via the /sillok-init command only (init sits outside the workflow chain and is never routed by sillok:workflow). Bootstraps a project for sillok — detects repo, base branch, package manager, gitignored config files, and branch prefix automatically; asks at most two questions (project URL when no board is detected; auto-detected area labels when candidates found), and nothing under auto-mode. Idempotent.
 user-invocable: false
 ---
 
