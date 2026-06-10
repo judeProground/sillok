@@ -34,7 +34,7 @@ Read the markdown block. Show it back to the user as the current state summary.
     [list open sub-issues via gh api graphql subIssues, or "none yet"]
     ```
 
-    - **(a)** → **Story-design mode** — read and follow `${CLAUDE_PLUGIN_ROOT}/skills/design/story-mode.md` (architecture + decomposition brainstorming seed, story-body update, output). No spec file is created. It routes back through Steps 6, 7, and 7.5 below.
+    - **(a)** → **Story-design mode** — first apply the `## Language` rules and the Step 2 pre-condition gate below, then read and follow `${CLAUDE_PLUGIN_ROOT}/skills/design/story-mode.md` (architecture + decomposition brainstorming seed, story-body update, output). No spec file is created. It routes back through Steps 6, 7, and 7.5 below, then the story-design branches of Steps 8 and 9.
     - **(b)** → fetch the chosen sub-issue's metadata, derive its slug (`bash ${CLAUDE_PLUGIN_ROOT}/scripts/slug-from-title.sh <sub-N> "<sub-title>"`), and proceed as ordinary single-issue mode against that sub-issue.
 
   - Otherwise (Feature / Task / Bug): continue to step 2 as ordinary single-issue mode.

@@ -1,6 +1,6 @@
 # Story-design mode
 
-Design flow when the resolved issue is a `Story` and the user chose option (a) in SKILL.md Step 1 — design the story itself. The goal is architecture and decomposition, not a code-level spec. No spec file is created — skip SKILL.md Steps 3 and 5 (the brainstorming output goes straight into the story body's `## Architecture` section).
+Design flow when the resolved issue is a `Story` and the user chose option (a) in SKILL.md Step 1 — design the story itself. SKILL.md's Language rules and Step 2 pre-condition apply before brainstorming begins. The goal is architecture and decomposition, not a code-level spec. No spec file is created — skip SKILL.md Steps 3 and 5 (the brainstorming output goes straight into the story body's `## Architecture` section).
 
 ## Brainstorming seed
 
