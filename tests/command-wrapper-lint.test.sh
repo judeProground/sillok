@@ -36,8 +36,9 @@ for name in "${expected[@]}"; do
   [[ "$lines" -le 15 ]] \
     || fail "$rel: $lines lines — pointer wrappers must be <= 15 lines (body belongs in skills/)"
 
-  grep -Fq 'Invoke the `sillok:' "$cmd_md" \
-    || fail "$rel: must invoke its sillok:<stage> skill (missing 'Invoke the \`sillok:')"
+  stage="${name#sillok-}"
+  grep -Fq "Invoke the \`sillok:$stage\`" "$cmd_md" \
+    || fail "$rel: must invoke its MATCHING stage skill (missing 'Invoke the \`sillok:$stage\`')"
 
   grep -Fq 'follow it exactly' "$cmd_md" \
     || fail "$rel: must instruct to follow the skill exactly"
