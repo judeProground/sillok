@@ -86,10 +86,12 @@ sillok_link_branch() {
   # End-to-end verification: a non-null mutation echo is not proof the link is
   # queryable. WARN (don't fail) when the branch is absent from the issue's
   # linkedBranches — linking is an enhancement, never a blocker.
+  # `last: 50`: the just-created link is newest, so it is always within the
+  # page regardless of total link count.
   local verified
   verified=$(gh api graphql -f query="{
     node(id: \"$issue_id\") {
-      ... on Issue { linkedBranches(first: 50) { nodes { ref { name } } } }
+      ... on Issue { linkedBranches(last: 50) { nodes { ref { name } } } }
     }
   }" --jq '.data.node.linkedBranches.nodes[].ref.name' 2>/dev/null | grep -Fx "$branch_name" || true)
   if [[ -z "$verified" ]]; then

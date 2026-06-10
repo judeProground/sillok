@@ -108,4 +108,26 @@ set -e
 [[ ! -f "$MARKER" ]] || fail "case d: gh stub was invoked despite orgMode=false"
 pass "orgMode=false -> no-op, gh untouched"
 
+echo "test: (e) mutation call fails (gh exits 1) -> rc 0 + 'call failed' warning"
+read -r -d '' CASE_FAIL <<'EOS' || true
+set -euo pipefail
+cd "$PROJ"
+gh() {
+  local all="$*"
+  if [[ "$all" == *createLinkedBranch* ]]; then
+    return 1
+  fi
+}
+source "$LIB"
+sillok_link_branch "I_kwIssue1" "$BRANCH" "deadbeef"
+EOS
+set +e
+PROJ="$PROJ_ORG" LIB="$LIB" BRANCH="$BRANCH" \
+  bash -c "$CASE_FAIL" >"$TMP/out_e" 2>"$TMP/err_e"
+rc=$?
+set -e
+[[ $rc -eq 0 ]] || { cat "$TMP/err_e" >&2; fail "case e: expected rc 0, got $rc"; }
+grep -q "call failed" "$TMP/err_e" || { cat "$TMP/err_e" >&2; fail "case e: stderr missing 'call failed'"; }
+pass "failed mutation call -> rc 0, call failed warning"
+
 echo "OK: all dev-link tests passed"

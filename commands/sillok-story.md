@@ -235,9 +235,14 @@ Used when the user is in the middle of a non-story work-unit branch that turned 
       git branch -m "$branch" "$story_branch"
       ```
 
-   e. **Re-link branch into the issue's Development panel (BEFORE pushing):** `createLinkedBranch` is create-only — if the branch already existed on the remote, the mutation would silently return null and no link would be made. The mutation creates the remote ref at the passed oid (== local HEAD), so 5f's `git push -u` is a content no-op that just sets the upstream.
+   e. **Re-link branch into the issue's Development panel (BEFORE pushing the story branch):** `createLinkedBranch` is create-only — if the story branch already existed on the remote, the mutation would silently return null and no link would be made. It also requires the passed oid to already exist in the remote repo, and mid-work promotion typically has unpushed local commits — so first push HEAD to the OLD branch name to make the oid reachable remotely without creating the story ref. The mutation then creates the story ref at that oid, and 5f's `git push -u` is a content no-op that just sets the upstream — *because of* this pre-push.
 
       ```bash
+      # Pre-push HEAD to the OLD branch name so the oid exists remotely without
+      # creating the story ref (the old branch is force-updated/created here and
+      # gets deleted in 5f anyway).
+      git push origin "HEAD:refs/heads/$branch" 2>/dev/null || true
+
       source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dev-link.sh"
       ISSUE_NODE_ID=$(sillok_issue_node_id "$REPO" "$N")
       BRANCH_SHA=$(git rev-parse HEAD)
@@ -249,7 +254,8 @@ Used when the user is in the middle of a non-story work-unit branch that turned 
    f. **Push new (sets upstream) + delete old on remote:**
       ```bash
       git push -u origin "$story_branch"
-      # Old branch may not exist on remote; ignore failure.
+      # Delete the old remote branch (created/updated by 5e's pre-push);
+      # ignore failure if it's absent (e.g. the pre-push itself failed).
       git push origin --delete "$branch" 2>/dev/null || true
       ```
 

@@ -133,7 +133,7 @@ Same-org cross-repo sub-issue linking is natively supported. Do NOT also add `- 
 
 ### Linked branches (Development panel)
 
-GitHub's Development panel on an issue auto-links PRs via `Closes #N` in PR body. **Branches must be explicitly linked** via the `createLinkedBranch` GraphQL mutation; sillok handles this in `/sillok-start` and `/sillok-story` via `scripts/lib/dev-link.sh`. The helper is idempotent — re-linking the same branch is safe.
+GitHub's Development panel on an issue auto-links PRs via `Closes #N` in PR body. **Branches must be explicitly linked** via the `createLinkedBranch` GraphQL mutation; sillok handles this in `/sillok-start` and `/sillok-story` via `scripts/lib/dev-link.sh`. createLinkedBranch is CREATE-ONLY — it must run BEFORE the branch first exists on the remote (sillok runs link-then-push); once the branch exists, the mutation silently returns null and `sillok_link_branch` emits a WARN (non-fatal).
 
 ```bash
 # Example: link a branch to an issue
@@ -268,7 +268,7 @@ Structural markers (section headers like `## Summary`, `## Design`, the `Parent:
 ## Common mistakes
 
 - Manually changing project status outside sillok commands — use `sillok_project_status_set` or let the commands handle it.
-- Forgetting to register the linked branch — the Development panel stays empty until `createLinkedBranch` runs.
+- Forgetting to register the linked branch — the Development panel stays empty until `createLinkedBranch` runs — and registering it AFTER the first push, which silently no-ops (create-only mutation).
 - Using task-list syntax (`- [ ] #N`) in the parent body alongside the GraphQL sub-issue mutation — pick one (GraphQL is the new way)
 - Mid-session triage of a discovered bug — file and move on
 - Using `Sprint 1` or ISO week (`2026-W17`) as milestone — must be `YYYY-MM-Wn` (year-month-week-of-month) per slice 4 design
