@@ -99,5 +99,48 @@ run_hook "$TMP5"
 rm -rf "$TMP5"
 pass "malformed JSON → zero output, exit 0"
 
+echo "test: config without automation key (pre-upgrade consumer) → propose mode, exit 0"
+TMP6=$(mktemp -d)
+make_git_repo "$TMP6"
+mkdir -p "$TMP6/.claude/sillok"
+jq '.repo = "acme/widgets" | .branchPrefix = "{type}/issue-" | del(.automation)' \
+  "$REPO_ROOT/templates/workflow.config.json" > "$TMP6/.claude/sillok/workflow.config.json"
+jq -e 'has("automation") | not' "$TMP6/.claude/sillok/workflow.config.json" >/dev/null \
+  || fail "test setup broken: automation key still present"
+(cd "$TMP6" && git checkout -q -b feature/issue-77-test-thing)
+run_hook "$TMP6"
+[[ "$HOOK_RC" == "0" ]] || fail "expected exit 0, got $HOOK_RC"
+echo "$HOOK_OUT" | grep -qi "propose" || fail "expected propose-mode line for absent automation key, got: $HOOK_OUT"
+[[ -z "$HOOK_ERR" ]] || fail "expected empty stderr, got: $HOOK_ERR"
+rm -rf "$TMP6"
+pass "del(.automation) config → propose mode fallback, exit 0"
+
+echo "test: no-network contract — gh/curl stubs never invoked, output unchanged, exit 0"
+TMP7=$(mktemp -d)
+make_git_repo "$TMP7"
+mkdir -p "$TMP7/.claude/sillok"
+jq '.repo = "acme/widgets" | .branchPrefix = "{type}/issue-"' \
+  "$REPO_ROOT/templates/workflow.config.json" > "$TMP7/.claude/sillok/workflow.config.json"
+(cd "$TMP7" && git checkout -q -b feature/issue-77-test-thing)
+STUB_BIN=$(mktemp -d)
+SENTINEL="$STUB_BIN/network-was-called"
+for tool in gh curl; do
+  printf '#!/bin/sh\ntouch "%s"\nexit 1\n' "$SENTINEL" > "$STUB_BIN/$tool"
+  chmod +x "$STUB_BIN/$tool"
+done
+# Stubs shadow real gh/curl; real git/jq/coreutils stay reachable via appended PATH.
+ERRFILE=$(mktemp)
+HOOK_RC=0
+HOOK_OUT=$(cd "$TMP7" && PATH="$STUB_BIN:$PATH" bash "$HOOK" 2>"$ERRFILE") || HOOK_RC=$?
+HOOK_ERR=$(cat "$ERRFILE")
+rm -f "$ERRFILE"
+[[ "$HOOK_RC" == "0" ]] || fail "expected exit 0 with gh/curl stubbed, got $HOOK_RC"
+[[ ! -e "$SENTINEL" ]] || fail "hook invoked gh or curl (sentinel created) — no-network contract violated"
+echo "$HOOK_OUT" | grep -qi "propose" || fail "expected automation mode line (propose) with stubs, got: $HOOK_OUT"
+echo "$HOOK_OUT" | grep -q "#77" || fail "expected issue '#77' in output with stubs, got: $HOOK_OUT"
+[[ -z "$HOOK_ERR" ]] || fail "expected empty stderr with stubs, got: $HOOK_ERR"
+rm -rf "$TMP7" "$STUB_BIN"
+pass "gh/curl stubbed to fail → never called, same output, exit 0"
+
 echo
 echo "All session-start-hook tests passed."
