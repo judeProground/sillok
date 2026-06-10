@@ -5,8 +5,11 @@
 #   2. plugin's templates/workflow.config.json (default fallback)
 #
 # Usage:
-#   source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/config.sh"
+#   SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+#   source "$SCRIPT_DIR/lib/config.sh"
 #   REPO=$(sillok_config repo)
+#   # CLAUDE_PLUGIN_ROOT is optional — when unset, the plugin root is
+#   # derived from this file's own location.
 #   LINT=$(sillok_config verify.lint)
 #   # bash 3.2-compatible array read (macOS-friendly):
 #   COPY_FILES=()
@@ -24,6 +27,7 @@ elif [[ -n "${ZSH_VERSION:-}" ]]; then
 else
   _SILLOK_CONFIG_LIB_DIR=$(cd "$(dirname "$0")" && pwd)
 fi
+_SILLOK_PLUGIN_ROOT_FALLBACK=$(cd "$_SILLOK_CONFIG_LIB_DIR/../.." && pwd)
 
 _sillok_project_config() {
   local root
@@ -34,9 +38,7 @@ _sillok_project_config() {
 }
 
 _sillok_default_config() {
-  local root="${CLAUDE_PLUGIN_ROOT:-}"
-  [[ -n "$root" ]] || root=$(cd "$_SILLOK_CONFIG_LIB_DIR/../.." && pwd)
-  echo "$root/templates/workflow.config.json"
+  echo "${CLAUDE_PLUGIN_ROOT:-$_SILLOK_PLUGIN_ROOT_FALLBACK}/templates/workflow.config.json"
 }
 
 sillok_config() {

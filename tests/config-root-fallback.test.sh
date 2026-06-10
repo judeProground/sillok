@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for scripts/lib/config.sh — CLAUDE_PLUGIN_ROOT unset fallback (#45).
-# config.sh must not die with "unbound variable" when CLAUDE_PLUGIN_ROOT is
+# config.sh must not die with a nounset error when CLAUDE_PLUGIN_ROOT is
 # not exported; it should derive the plugin root from its own file location.
 set -euo pipefail
 
@@ -11,7 +11,8 @@ pass() { echo "  ok: $1"; }
 
 TMP_PROJ=$(mktemp -d)
 TMP_NOGIT=$(mktemp -d)
-trap 'rm -rf "$TMP_PROJ" "$TMP_NOGIT"' EXIT
+ERR_FILE=$(mktemp)
+trap 'rm -rf "$TMP_PROJ" "$TMP_NOGIT" "$ERR_FILE"' EXIT
 
 # Temp git project with its own config.
 (
@@ -26,41 +27,31 @@ TEMPLATE_BASE=$(jq -r '.baseBranch' "$REPO_ROOT/templates/workflow.config.json")
 [[ -n "$TEMPLATE_BASE" && "$TEMPLATE_BASE" != "null" ]] \
   || fail "template baseBranch missing — test setup broken"
 
-ERR_FILE=$(mktemp)
+# Source config.sh in <shell> from <dir> with CLAUDE_PLUGIN_ROOT removed from
+# the env, read <key>, and assert it equals <want> with no nounset death.
+# bash says "unbound variable"; zsh says "parameter not set".
+check_fallback() {
+  local shell="$1" dir="$2" key="$3" want="$4" label="$5"
+  local out
+  out=$(env -u CLAUDE_PLUGIN_ROOT "$shell" -c "set -euo pipefail; cd '$dir'; source '$REPO_ROOT/scripts/lib/config.sh'; sillok_config $key" 2>"$ERR_FILE") \
+    || { cat "$ERR_FILE" >&2; fail "$shell: sourcing died with CLAUDE_PLUGIN_ROOT unset ($label)"; }
+  [[ "$out" == "$want" ]] || fail "$shell ($label): expected '$want', got '$out'"
+  grep -Eq "unbound variable|parameter not set" "$ERR_FILE" \
+    && fail "$shell ($label): stderr contains a nounset error"
+  pass "$shell + $label: $key = $want, no nounset error"
+}
 
-echo "test: bash, env removed, project config present"
-out=$(env -u CLAUDE_PLUGIN_ROOT bash -c "set -euo pipefail; cd '$TMP_PROJ'; source '$REPO_ROOT/scripts/lib/config.sh'; sillok_config repo" 2>"$ERR_FILE") \
-  || { cat "$ERR_FILE" >&2; fail "bash sourcing died with CLAUDE_PLUGIN_ROOT unset"; }
-[[ "$out" == "acme/x" ]] || fail "expected 'acme/x', got '$out'"
-grep -q "unbound variable" "$ERR_FILE" && fail "stderr contains 'unbound variable'"
-pass "bash + project config: repo = acme/x, no unbound variable"
-
-echo "test: bash, env removed, NO project config (non-git dir) — template fallback via derived root"
-out=$(env -u CLAUDE_PLUGIN_ROOT bash -c "set -euo pipefail; cd '$TMP_NOGIT'; source '$REPO_ROOT/scripts/lib/config.sh'; sillok_config baseBranch" 2>"$ERR_FILE") \
-  || { cat "$ERR_FILE" >&2; fail "bash sourcing died without project config"; }
-[[ "$out" == "$TEMPLATE_BASE" ]] || fail "expected '$TEMPLATE_BASE' from template, got '$out'"
-grep -q "unbound variable" "$ERR_FILE" && fail "stderr contains 'unbound variable'"
-pass "bash + no project config: baseBranch = $TEMPLATE_BASE (template via derived root)"
-
+SHELLS=(bash)
 if command -v zsh >/dev/null 2>&1; then
-  echo "test: zsh, env removed, project config present"
-  out=$(env -u CLAUDE_PLUGIN_ROOT zsh -c "set -euo pipefail; cd '$TMP_PROJ'; source '$REPO_ROOT/scripts/lib/config.sh'; sillok_config repo" 2>"$ERR_FILE") \
-    || { cat "$ERR_FILE" >&2; fail "zsh sourcing died with CLAUDE_PLUGIN_ROOT unset"; }
-  [[ "$out" == "acme/x" ]] || fail "zsh: expected 'acme/x', got '$out'"
-  grep -q "unbound variable" "$ERR_FILE" && fail "zsh stderr contains 'unbound variable'"
-  pass "zsh + project config: repo = acme/x, no unbound variable"
-
-  echo "test: zsh, env removed, NO project config — template fallback via derived root"
-  out=$(env -u CLAUDE_PLUGIN_ROOT zsh -c "set -euo pipefail; cd '$TMP_NOGIT'; source '$REPO_ROOT/scripts/lib/config.sh'; sillok_config baseBranch" 2>"$ERR_FILE") \
-    || { cat "$ERR_FILE" >&2; fail "zsh sourcing died without project config"; }
-  [[ "$out" == "$TEMPLATE_BASE" ]] || fail "zsh: expected '$TEMPLATE_BASE' from template, got '$out'"
-  grep -q "unbound variable" "$ERR_FILE" && fail "zsh stderr contains 'unbound variable'"
-  pass "zsh + no project config: baseBranch = $TEMPLATE_BASE (template via derived root)"
+  SHELLS+=(zsh)
 else
-  echo "note: zsh not found on PATH — skipping zsh fallback cases."
+  echo "  note: zsh not found — skipping zsh assertions (macOS always has zsh; Linux CI may not)"
 fi
 
-rm -f "$ERR_FILE"
+for sh in "${SHELLS[@]}"; do
+  check_fallback "$sh" "$TMP_PROJ"  repo       "acme/x"        "project config"
+  check_fallback "$sh" "$TMP_NOGIT" baseBranch "$TEMPLATE_BASE" "no project config (template via derived root)"
+done
 
 echo
 echo "All config-root-fallback tests passed."
