@@ -37,6 +37,17 @@
       "default": false,
       "description": "Auto-detected by /sillok-init. true = org repo (Issue Types + linked branches). false = user repo (label fallback)."
     },
+    "automation": {
+      "type": "object",
+      "properties": {
+        "fullAuto": {
+          "type": "boolean",
+          "default": false,
+          "description": "true = the sillok:workflow orchestrator chains stages (start → design → execute → end) without per-stage confirmation, stopping after PR creation (never merges). false (default) = propose mode: each next stage is proposed and waits for user confirmation."
+        }
+      },
+      "description": "Workflow automation settings read by the sillok:workflow orchestrator skill. Absent keys fall back to the plugin template defaults (propose mode)."
+    },
     "project": {
       "type": "object",
       "required": ["owner", "number", "statusField", "statuses"],
