@@ -221,6 +221,20 @@ sillok_project_status_set() {
     return 1
   fi
 
+  # Tripwire: a resolver that leaks debug text to stdout (or a caller passing
+  # a contaminated item_id captured the same way) would pollute these ids and
+  # produce a malformed mutation (GraphQL "Expected string"). Refuse loudly
+  # instead of sending garbage. Ids are base64ish node ids / hex option ids —
+  # never contain whitespace or shell-noise characters.
+  local _id
+  for _id in "$item_id" "$project_id" "$field_id" "$option_id"; do
+    case "$_id" in
+      *[![:alnum:]_=-]*)
+        echo "[sillok] malformed GraphQL id '$_id' — refusing to send mutation (a resolver leaked non-id output to stdout?)" >&2
+        return 1 ;;
+    esac
+  done
+
   gh api graphql -f query="mutation {
     updateProjectV2ItemFieldValue(input: {
       projectId: \"$project_id\",
