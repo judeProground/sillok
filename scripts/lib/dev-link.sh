@@ -45,7 +45,9 @@ sillok_repo_node_id() {
 
 # Create a linked branch on an issue (Development panel).
 # Usage: sillok_link_branch <issue-node-id> <branch-name> <commit-sha> [repo-node-id]
-# Idempotent on re-call with same args (GitHub returns the existing link).
+# createLinkedBranch is CREATE-ONLY: if the branch already exists on the remote,
+# the mutation returns {linkedBranch: null} with exit 0 and no link is made.
+# Call this BEFORE the first push. Always returns 0 (linking is non-fatal).
 sillok_link_branch() {
   local issue_id="$1"
 
@@ -66,13 +68,32 @@ sillok_link_branch() {
     input="$input, repositoryId: \"$repo_id\""
   fi
 
-  gh api graphql -f query="mutation {
+  local linked_id
+  linked_id=$(gh api graphql -f query="mutation {
     createLinkedBranch(input: { $input }) {
       linkedBranch { id ref { name } }
     }
-  }" --jq '.data.createLinkedBranch.linkedBranch.id' 2>/dev/null || {
-    # If the branch is already linked, GitHub returns an error; treat as idempotent
-    echo "[sillok] linked branch creation returned non-zero (may already be linked); continuing" >&2
+  }" --jq '.data.createLinkedBranch.linkedBranch.id' 2>/dev/null) || {
+    echo "[sillok] WARN: createLinkedBranch call failed — Development panel may lack the branch link for '$branch_name'" >&2
     return 0
   }
+
+  if [[ -z "$linked_id" || "$linked_id" == "null" ]]; then
+    echo "[sillok] WARN: linked branch NOT created for '$branch_name' — mutation returned null (the branch already exists on the remote; createLinkedBranch must run before the first push)" >&2
+    return 0
+  fi
+
+  # End-to-end verification: a non-null mutation echo is not proof the link is
+  # queryable. WARN (don't fail) when the branch is absent from the issue's
+  # linkedBranches — linking is an enhancement, never a blocker.
+  local verified
+  verified=$(gh api graphql -f query="{
+    node(id: \"$issue_id\") {
+      ... on Issue { linkedBranches(first: 50) { nodes { ref { name } } } }
+    }
+  }" --jq '.data.node.linkedBranches.nodes[].ref.name' 2>/dev/null | grep -Fx "$branch_name" || true)
+  if [[ -z "$verified" ]]; then
+    echo "[sillok] WARN: linked-branch verification failed for '$branch_name' — mutation returned an id but the link is not queryable on the issue" >&2
+  fi
+  return 0
 }

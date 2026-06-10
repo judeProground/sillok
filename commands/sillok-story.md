@@ -128,21 +128,20 @@ Used when the user is on `main`, an unrelated branch, or a fresh worktree.
      "${N}-${slug_without_n}" "$story_branch" "$BASE_BRANCH"
    ```
 
-9. Push the branch to origin (so sub-features can cut from it):
+9. Link the branch into the issue's Development panel BEFORE pushing. `createLinkedBranch` is create-only — if the branch already exists on the remote, the mutation silently returns null and no link is made, so this must run before the first push. Under org mode the mutation itself creates the remote ref; under `orgMode=false` the helper no-ops and step 10's push creates the branch:
 
    ```bash
    worktree_path="<worktreeDir>/${N}-${slug_without_n}"   # use the path setup-feature-worktree printed
-   (cd "$worktree_path" && git push -u origin "$story_branch")
+   BRANCH_SHA=$(cd "$worktree_path" && git rev-parse HEAD)
+   source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dev-link.sh"
+   ISSUE_NODE_ID=$(sillok_issue_node_id "$REPO" "$N")
+   sillok_link_branch "$ISSUE_NODE_ID" "$story_branch" "$BRANCH_SHA"
    ```
 
-10. Link the branch into the issue's Development panel and add the issue to the project board with Status=Todo:
+10. Push the branch to origin (so sub-features can cut from it; under org mode this is a content no-op that just sets the upstream), then add the issue to the project board with Status=Todo:
 
     ```bash
-    # Linked branch — populate Development panel
-    BRANCH_SHA=$(cd "$worktree_path" && git rev-parse HEAD)
-    source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dev-link.sh"
-    ISSUE_NODE_ID=$(sillok_issue_node_id "$REPO" "$N")
-    sillok_link_branch "$ISSUE_NODE_ID" "$story_branch" "$BRANCH_SHA"
+    (cd "$worktree_path" && git push -u origin "$story_branch")
 
     # Project add + status Todo
     source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/project.sh"
@@ -198,8 +197,8 @@ Used when the user is in the middle of a non-story work-unit branch that turned 
    This will:
      • Change #$N's Issue Type from $current_issue_type to Story
      • Rename branch  $branch  →  story/issue-$N-<slug>
-     • Push the new branch and delete the old remote branch
      • Re-link the new branch into the issue's Development panel
+     • Push the new branch and delete the old remote branch
      • Rewrite the issue body to the story template (preserves Summary)
      • Insert ## Integration branch section
      ${dirty:+• Stash current changes and (optionally) move them into a new sub-feature}
@@ -236,14 +235,8 @@ Used when the user is in the middle of a non-story work-unit branch that turned 
       git branch -m "$branch" "$story_branch"
       ```
 
-   e. **Push new + delete old on remote:**
-      ```bash
-      git push -u origin "$story_branch"
-      # Old branch may not exist on remote; ignore failure.
-      git push origin --delete "$branch" 2>/dev/null || true
-      ```
+   e. **Re-link branch into the issue's Development panel (BEFORE pushing):** `createLinkedBranch` is create-only — if the branch already existed on the remote, the mutation would silently return null and no link would be made. The mutation creates the remote ref at the passed oid (== local HEAD), so 5f's `git push -u` is a content no-op that just sets the upstream.
 
-   f. **Re-link branch into the issue's Development panel:**
       ```bash
       source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dev-link.sh"
       ISSUE_NODE_ID=$(sillok_issue_node_id "$REPO" "$N")
@@ -252,6 +245,13 @@ Used when the user is in the middle of a non-story work-unit branch that turned 
       ```
 
       (The issue was already added to the project when it was first created as `$current_issue_type` via `/sillok-start` — no project-add needed here.)
+
+   f. **Push new (sets upstream) + delete old on remote:**
+      ```bash
+      git push -u origin "$story_branch"
+      # Old branch may not exist on remote; ignore failure.
+      git push origin --delete "$branch" 2>/dev/null || true
+      ```
 
    g. **Rewrite issue body:**
 
