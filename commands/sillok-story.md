@@ -239,8 +239,10 @@ Used when the user is in the middle of a non-story work-unit branch that turned 
 
       ```bash
       # Pre-push HEAD to the OLD branch name so the oid exists remotely without
-      # creating the story ref (the old branch is force-updated/created here and
-      # gets deleted in 5f anyway).
+      # creating the story ref. Plain fast-forward push — typically succeeds
+      # because the rename kept history; if the user rewrote history it fails
+      # silently and linking degrades to a WARN. The old branch gets deleted
+      # in 5f anyway.
       git push origin "HEAD:refs/heads/$branch" 2>/dev/null || true
 
       source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dev-link.sh"

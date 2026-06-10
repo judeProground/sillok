@@ -202,6 +202,14 @@ sillok_project_status_set() {
   local item_id="$1"
   local status_key="$2"
 
+  # Early guard: an empty item id can never succeed, so refuse before the
+  # resolvers below spend gh round-trips. The combined -z check further down
+  # still covers resolver failures (empty project/field/option ids).
+  if [[ -z "$item_id" ]]; then
+    echo "[sillok] empty project item id — issue not on the project board?" >&2
+    return 1
+  fi
+
   local field_name option_name
   field_name=$(sillok_config project.statusField)
   option_name=$(sillok_config "project.statuses.$status_key")

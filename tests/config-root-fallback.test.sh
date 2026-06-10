@@ -27,13 +27,26 @@ TEMPLATE_BASE=$(jq -r '.baseBranch' "$REPO_ROOT/templates/workflow.config.json")
 [[ -n "$TEMPLATE_BASE" && "$TEMPLATE_BASE" != "null" ]] \
   || fail "template baseBranch missing — test setup broken"
 
+# Run <snippet> in <shell> with CLAUDE_PLUGIN_ROOT removed from the env.
+# Shells are hermetic (house pattern from lib-zsh-compat.test.sh): zsh -f
+# (NO_RCS) skips ~/.zshenv noise, bash runs with BASH_ENV unset; zsh-sh is
+# zsh in sh-emulation (POSIX_ARGZERO), the mode behind #48.
+run_unset_root() {
+  local shell="$1" snippet="$2"
+  case "$shell" in
+    zsh-sh) env -u CLAUDE_PLUGIN_ROOT zsh -f -c "emulate sh; $snippet" ;;
+    zsh)    env -u CLAUDE_PLUGIN_ROOT zsh -f -c "$snippet" ;;
+    *)      env -u CLAUDE_PLUGIN_ROOT -u BASH_ENV "$shell" -c "$snippet" ;;
+  esac
+}
+
 # Source config.sh in <shell> from <dir> with CLAUDE_PLUGIN_ROOT removed from
 # the env, read <key>, and assert it equals <want> with no nounset death.
 # bash says "unbound variable"; zsh says "parameter not set".
 check_fallback() {
   local shell="$1" dir="$2" key="$3" want="$4" label="$5"
   local out
-  out=$(env -u CLAUDE_PLUGIN_ROOT "$shell" -c "set -euo pipefail; cd '$dir'; source '$REPO_ROOT/scripts/lib/config.sh'; sillok_config $key" 2>"$ERR_FILE") \
+  out=$(run_unset_root "$shell" "set -euo pipefail; cd '$dir'; source '$REPO_ROOT/scripts/lib/config.sh'; sillok_config $key" 2>"$ERR_FILE") \
     || { cat "$ERR_FILE" >&2; fail "$shell: sourcing died with CLAUDE_PLUGIN_ROOT unset ($label)"; }
   [[ "$out" == "$want" ]] || fail "$shell ($label): expected '$want', got '$out'"
   grep -Eq "unbound variable|parameter not set" "$ERR_FILE" \
@@ -41,9 +54,25 @@ check_fallback() {
   pass "$shell + $label: $key = $want, no nounset error"
 }
 
+# Transitive case — the #45×#48 intersection: source dev-link.sh (NOT
+# config.sh directly) from a non-repo cwd with CLAUDE_PLUGIN_ROOT unset.
+# The lib must resolve its own dir (survives sh-emulation, #48) AND the
+# transitively sourced config.sh must derive the plugin root from its own
+# location (#45) for the template value to come back.
+check_transitive() {
+  local shell="$1"
+  local out
+  out=$(run_unset_root "$shell" "set -euo pipefail; cd '$TMP_NOGIT'; source '$REPO_ROOT/scripts/lib/dev-link.sh'; sillok_config baseBranch" 2>"$ERR_FILE") \
+    || { cat "$ERR_FILE" >&2; fail "$shell: transitive source via dev-link.sh died with CLAUDE_PLUGIN_ROOT unset"; }
+  [[ "$out" == "$TEMPLATE_BASE" ]] || fail "$shell (transitive via dev-link.sh): expected '$TEMPLATE_BASE', got '$out'"
+  grep -Eq "unbound variable|parameter not set" "$ERR_FILE" \
+    && fail "$shell (transitive via dev-link.sh): stderr contains a nounset error"
+  pass "$shell + transitive via dev-link.sh: baseBranch = $TEMPLATE_BASE, no nounset error"
+}
+
 SHELLS=(bash)
 if command -v zsh >/dev/null 2>&1; then
-  SHELLS+=(zsh)
+  SHELLS+=(zsh zsh-sh) # zsh-sh = zsh in sh-emulation (POSIX_ARGZERO), the mode behind #48
 else
   echo "  note: zsh not found — skipping zsh assertions (macOS always has zsh; Linux CI may not)"
 fi
@@ -51,6 +80,7 @@ fi
 for sh in "${SHELLS[@]}"; do
   check_fallback "$sh" "$TMP_PROJ"  repo       "acme/x"        "project config"
   check_fallback "$sh" "$TMP_NOGIT" baseBranch "$TEMPLATE_BASE" "no project config (template via derived root)"
+  check_transitive "$sh"
 done
 
 echo
