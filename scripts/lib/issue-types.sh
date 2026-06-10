@@ -8,7 +8,17 @@
 # sillok never calls those; admin sets up types out-of-band.
 set -euo pipefail
 
-_SILLOK_LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)
+# Resolve this file's directory under bash AND zsh (nounset-safe).
+# zsh: ${(%):-%x} expands to the file being sourced; eval defers the
+# zsh-only syntax so bash never parses it. ${BASH_SOURCE[0]:-$0} is NOT
+# usable — zsh trips nounset on the unset array subscript itself.
+if [[ -n "${BASH_VERSION:-}" ]]; then
+  _SILLOK_LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+elif [[ -n "${ZSH_VERSION:-}" ]]; then
+  eval '_SILLOK_LIB_DIR=$(cd "$(dirname "${(%):-%x}")" && pwd)'
+else
+  _SILLOK_LIB_DIR=$(cd "$(dirname "$0")" && pwd)
+fi
 # shellcheck source=config.sh
 source "$_SILLOK_LIB_DIR/config.sh"
 
