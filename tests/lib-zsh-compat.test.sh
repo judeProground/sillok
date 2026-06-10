@@ -3,6 +3,13 @@
 # The three non-config libs historically used ${BASH_SOURCE[0]} (bash-only) for
 # path resolution and BASH_REMATCH (bash-only) for URL parsing, which broke them
 # under zsh. This guards against regressing either.
+#
+# Two zsh failure modes are covered (#45, #48):
+#   - zsh <= 5.8.1 trips nounset on ${BASH_SOURCE[0]:-$0} (the unset array
+#     subscript errors before the :- default applies).
+#   - zsh in sh-emulation (POSIX_ARGZERO — how some hosts invoke "sh") sets
+#     $0 to "zsh" instead of the sourced file, so a $0 fallback resolves the
+#     lib dir to cwd and the transitive config.sh source silently breaks.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -11,24 +18,45 @@ export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
 fail() { echo "FAIL: $1" >&2; exit 1; }
 pass() { echo "  ok: $1"; }
 
+STDERR_FILE=$(mktemp)
+WORKDIR=$(mktemp -d)
+trap 'rm -f "$STDERR_FILE"; rm -rf "$WORKDIR"' EXIT
+
+# Snippets run from a neutral cwd so a cwd-relative lib-dir fallback can never
+# accidentally find config.sh and mask the bug. Shells are hermetic: zsh -f
+# (NO_RCS) skips ~/.zshenv noise, and bash runs with BASH_ENV unset; the
+# snippets set their own options, so behavior under test is unchanged.
 run_in() {
   local shell="$1" snippet="$2"
-  "$shell" -c "set -euo pipefail; export CLAUDE_PLUGIN_ROOT='$REPO_ROOT'; $snippet"
+  case "$shell" in
+    zsh-sh) zsh -f -c "emulate sh; set -euo pipefail; export CLAUDE_PLUGIN_ROOT='$REPO_ROOT'; cd '$WORKDIR'; $snippet" ;;
+    zsh)    zsh -f -c "set -euo pipefail; export CLAUDE_PLUGIN_ROOT='$REPO_ROOT'; cd '$WORKDIR'; $snippet" ;;
+    *)      env -u BASH_ENV "$shell" -c "set -euo pipefail; export CLAUDE_PLUGIN_ROOT='$REPO_ROOT'; cd '$WORKDIR'; $snippet" ;;
+  esac
 }
 
+# Asserts the lib sources WITHOUT stderr noise, defines its function, pulls in
+# config.sh transitively, AND can actually execute a config read through the
+# loaded chain. Definition alone is not enough: a failed transitive source
+# still leaves the lib's functions defined but broken at call time.
 check_lib() {
   local shell="$1" lib="$2" fn="$3"
-  local snippet="source '$REPO_ROOT/scripts/lib/$lib'; command -v $fn >/dev/null"
-  if run_in "$shell" "$snippet" 2>/dev/null; then
-    pass "$shell: $lib sources, $fn defined"
-  else
-    fail "$shell: $lib failed to source or $fn missing"
+  local snippet="source '$REPO_ROOT/scripts/lib/$lib'"
+  snippet+="; command -v $fn >/dev/null"
+  snippet+="; command -v sillok_config >/dev/null"
+  snippet+="; sillok_config baseBranch >/dev/null"
+  if ! run_in "$shell" "$snippet" 2>"$STDERR_FILE"; then
+    fail "$shell: $lib failed to source, define $fn, or execute sillok_config — stderr: $(cat "$STDERR_FILE")"
   fi
+  if [[ -s "$STDERR_FILE" ]]; then
+    fail "$shell: $lib emitted stderr while sourcing/executing: $(cat "$STDERR_FILE")"
+  fi
+  pass "$shell: $lib sources cleanly, $fn defined, sillok_config executes"
 }
 
 SHELLS=(bash)
 if command -v zsh >/dev/null 2>&1; then
-  SHELLS+=(zsh)
+  SHELLS+=(zsh zsh-sh) # zsh-sh = zsh in sh-emulation (POSIX_ARGZERO), the mode behind #48
 else
   echo "  note: zsh not found — skipping zsh assertions (macOS always has zsh; Linux CI may not)"
 fi

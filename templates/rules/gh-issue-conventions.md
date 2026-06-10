@@ -242,7 +242,7 @@ Keep bug bodies tight — 5–10 lines including repro. No design doc needed.
 
 ## Linked Branches (Development panel)
 
-GitHub's Development panel on an issue auto-links PRs via `Closes #N` in PR body. **Branches must be explicitly linked** via the `createLinkedBranch` GraphQL mutation; sillok handles this in `/sillok-start` and `/sillok-story` via `scripts/lib/dev-link.sh`. The helper is idempotent.
+GitHub's Development panel on an issue auto-links PRs via `Closes #N` in PR body. **Branches must be explicitly linked** via the `createLinkedBranch` GraphQL mutation; sillok handles this in `/sillok-start` and `/sillok-story` via `scripts/lib/dev-link.sh`. createLinkedBranch is CREATE-ONLY — it must run BEFORE the branch first exists on the remote (sillok runs link-then-push); once the branch exists, the mutation silently returns null and `sillok_link_branch` emits a WARN (non-fatal).
 
 ## WIP Limits
 

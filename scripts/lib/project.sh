@@ -4,7 +4,17 @@
 # Status writes are idempotent at the GitHub level (re-setting same value = no-op).
 set -euo pipefail
 
-_SILLOK_LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)
+# Resolve this file's directory under bash AND zsh (nounset-safe), so the
+# plugin root can be derived when CLAUDE_PLUGIN_ROOT is not exported.
+# zsh: ${(%):-%x} expands to the file currently being sourced; eval defers
+# the zsh-only syntax so bash never parses it.
+if [[ -n "${BASH_VERSION:-}" ]]; then
+  _SILLOK_LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+elif [[ -n "${ZSH_VERSION:-}" ]]; then
+  eval '_SILLOK_LIB_DIR=$(cd "$(dirname "${(%):-%x}")" && pwd)'
+else
+  _SILLOK_LIB_DIR=$(cd "$(dirname "$0")" && pwd)
+fi
 # shellcheck source=config.sh
 source "$_SILLOK_LIB_DIR/config.sh"
 
@@ -192,6 +202,14 @@ sillok_project_status_set() {
   local item_id="$1"
   local status_key="$2"
 
+  # Early guard: an empty item id can never succeed, so refuse before the
+  # resolvers below spend gh round-trips. The combined -z check further down
+  # still covers resolver failures (empty project/field/option ids).
+  if [[ -z "$item_id" ]]; then
+    echo "[sillok] empty project item id — issue not on the project board?" >&2
+    return 1
+  fi
+
   local field_name option_name
   field_name=$(sillok_config project.statusField)
   option_name=$(sillok_config "project.statuses.$status_key")
@@ -206,10 +224,24 @@ sillok_project_status_set() {
   field_id=$(sillok_project_field_id "$field_name")
   option_id=$(sillok_project_option_id "$field_name" "$option_name")
 
-  if [[ -z "$project_id" || -z "$field_id" || -z "$option_id" ]]; then
-    echo "[sillok] could not resolve project_id=$project_id field_id=$field_id option_id=$option_id" >&2
+  if [[ -z "$item_id" || -z "$project_id" || -z "$field_id" || -z "$option_id" ]]; then
+    echo "[sillok] could not resolve item_id=$item_id project_id=$project_id field_id=$field_id option_id=$option_id" >&2
     return 1
   fi
+
+  # Tripwire: a resolver that leaks debug text to stdout (or a caller passing
+  # a contaminated item_id captured the same way) would pollute these ids and
+  # produce a malformed mutation (GraphQL "Expected string"). Refuse loudly
+  # instead of sending garbage. Ids are base64ish node ids / hex option ids —
+  # never contain whitespace or shell-noise characters.
+  local _id
+  for _id in "$item_id" "$project_id" "$field_id" "$option_id"; do
+    case "$_id" in
+      *[![:alnum:]_=-]*)
+        echo "[sillok] malformed GraphQL id '$_id' — refusing to send mutation (a resolver leaked non-id output to stdout?)" >&2
+        return 1 ;;
+    esac
+  done
 
   gh api graphql -f query="mutation {
     updateProjectV2ItemFieldValue(input: {

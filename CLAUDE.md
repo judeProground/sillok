@@ -22,7 +22,8 @@ for t in tests/*.test.sh; do echo "=== $(basename $t) ==="; bash "$t" 2>&1 | tai
 bash tests/project-tree.test.sh
 
 # Smoke-test a script end-to-end against a temp project (most tests do this internally)
-# All scripts expect CLAUDE_PLUGIN_ROOT to point at the repo root:
+# CLAUDE_PLUGIN_ROOT is optional since 2.4.1 (config.sh derives the plugin root
+# from its own file location); exporting it is still the convention for tests:
 export CLAUDE_PLUGIN_ROOT=$(pwd)
 bash scripts/precompute-start.sh
 ```
@@ -49,7 +50,7 @@ Why: bash is much cheaper than LLM tool round-trips for state checks, and printi
 Config precedence:
 
 1. `<git-root>/.claude/sillok/workflow.config.json` (consumer project)
-2. `${CLAUDE_PLUGIN_ROOT}/templates/workflow.config.json` (plugin fallback)
+2. `${CLAUDE_PLUGIN_ROOT}/templates/workflow.config.json` (plugin fallback; when the env var is unset, config.sh derives the plugin root from its own file location — #45)
 
 Inside this repo's own tests, `CLAUDE_PLUGIN_ROOT` is set to the repo root so the template acts as the default; test cases construct temp projects with their own `.claude/sillok/workflow.config.json` to exercise the override path (see `tests/config.test.sh`).
 
@@ -136,7 +137,7 @@ Tests live in `tests/*.test.sh`. Each test is a standalone bash script that crea
 - **macOS bash 3.2 compatibility.** No `mapfile`, no `readarray`, no `${var,,}` lowercasing. Use the `while IFS= read -r line; do arr+=("$line"); done < <(cmd)` pattern instead. The example is at the top of `scripts/lib/config.sh`.
 - All scripts use `set -euo pipefail`.
 - All scripts that read config source `lib/config.sh` via `SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); source "$SCRIPT_DIR/lib/config.sh"` (NOT relative to `${CLAUDE_PLUGIN_ROOT}` — scripts must work when invoked directly from tests).
-- **Sourced libs may run under zsh** (Claude Code's Bash tool isn't always bash). The 3 sourced libs (`project`/`dev-link`/`issue-types`.sh) use `${BASH_SOURCE[0]:-$0}` (bare `${BASH_SOURCE[0]}` is unset in zsh under `set -u`) and avoid `BASH_REMATCH` (empty in zsh — use parameter expansion). `tests/lib-zsh-compat.test.sh` guards this. Standalone scripts (shebang) always run under bash, so bare `${BASH_SOURCE[0]}` is fine there.
+- **Sourced libs may run under zsh** (Claude Code's Bash tool isn't always bash). The 3 sourced libs (`project`/`dev-link`/`issue-types`.sh) and `config.sh` resolve their own directory via an explicit shell branch — bash `${BASH_SOURCE[0]}`, zsh eval-deferred `${(%):-%x}` — because with `${BASH_SOURCE[0]:-$0}` the `$0` fallback breaks under zsh sh-emulation (POSIX_ARGZERO resolves `$0` to `zsh`, so the lib dir becomes cwd), and zsh <= 5.8.1 additionally trips nounset on the unset array subscript before the `:-` default applies. Sourced libs also avoid `BASH_REMATCH` (empty in zsh — use parameter expansion). `tests/lib-zsh-compat.test.sh` guards this, asserting execution through the loaded chain, not just function definition. Standalone scripts (shebang) always run under bash, so bare `${BASH_SOURCE[0]}` is fine there.
 - `.editorconfig`: 2-space indent, LF endings, trim trailing whitespace, final newline. Markdown files keep trailing whitespace (intentional for line breaks).
 
 ## Release process

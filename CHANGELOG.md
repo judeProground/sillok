@@ -6,6 +6,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.4.1] — 2026-06-10
+
+Patch release: four bug fixes found while dogfooding v2.4.0 (story #46).
+
+> **Upgrading consumer projects: re-run `/sillok-init` after updating.** It refreshes `.claude/sillok/rules/gh-issue-conventions.md`, whose previous copy incorrectly claims dev-link branch linking is idempotent — it is create-only and must run **before** the first push. The stale rule is `@`-imported into your CLAUDE.md, so until refreshed it actively misinforms LLM sessions.
+
+### Fixed
+- **Linked branches were never created by `/sillok-start` or `/sillok-story` (#40).** GitHub's `createLinkedBranch` is create-only — once the branch exists on the remote it silently returns `null` — and sillok pushed before linking, so the Development panel stayed empty on every run while the helper swallowed the null as success. All three link sites now link **before** pushing (the promotion path additionally pre-pushes `HEAD` to the old branch name so the oid is reachable when local commits were never pushed), and `sillok_link_branch` warns loudly on null results, failed calls, and failed end-to-end verification (`linkedBranches(last: 50)`) — always non-fatal. Verified by a live API experiment. Stale "the helper is idempotent" claims in the `gh-issue-management` skill and the rule template are replaced with the create-only contract.
+- **`config.sh` crashed with `unbound variable` when `CLAUDE_PLUGIN_ROOT` was unset (#45).** The env var is now optional: `config.sh` derives the plugin root from its own file location (cross-shell self-dir resolution; env var still wins when set). Bites direct script invocation and subshells; the normal command path was unaffected.
+- **Lib sourcing still failed under zsh (#48) — completes the partial fix shipped in 2.4.0 (#37/#43).** The 2.4.0 idiom `${BASH_SOURCE[0]:-$0}` breaks under zsh sh-emulation (POSIX_ARGZERO resolves `$0` to `zsh`, so the lib dir becomes cwd and `config.sh` never loads) and trips nounset on zsh ≤ 5.8.1; the old compat test masked this by swallowing stderr and asserting only that functions were *defined*. All four libs now share an explicit shell-branch idiom (bash `${BASH_SOURCE[0]}`; zsh eval-deferred `${(%):-%x}`), and `tests/lib-zsh-compat.test.sh` asserts execution through the loaded chain under bash, zsh, and zsh sh-emulation with hermetic shells.
+- **`sillok_project_status_set` could send malformed or empty-id mutations (#47).** Defensive hardening: empty `item_id` (the common case — issue not on the project board) and any id containing characters outside the GraphQL-id alphabet are refused loudly before any network call, instead of producing an opaque server-side error. Tripwire for resolver stdout pollution observed on a stale 1.2.x build; current resolvers are clean.
+
 ## [2.4.0] — 2026-06-09
 
 ### Added
