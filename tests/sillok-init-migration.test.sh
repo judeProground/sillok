@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
-# Structural tests for sillok-init.md config/rules migration (Steps 6 & 7).
-# Markdown command blocks are LLM-executed, not directly runnable, so we anchor
+# Structural tests for skills/init/SKILL.md config/rules migration (Steps 6 & 7).
+# Markdown skill blocks are LLM-executed, not directly runnable, so we anchor
 # the contract via grep on the spec file.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-INIT_MD="$REPO_ROOT/commands/sillok-init.md"
+INIT_MD="$REPO_ROOT/skills/init/SKILL.md"
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
 pass() { echo "  ok: $1"; }
 
 echo "test: Step 6 calls migrate-config.sh"
 grep -q "migrate-config.sh" "$INIT_MD" \
-  || fail "expected sillok-init.md to call migrate-config.sh"
+  || fail "expected skills/init/SKILL.md to call migrate-config.sh"
 pass "migrate-config.sh referenced"
 
 echo "test: Step 7 calls refresh-rules.sh"
 grep -q "refresh-rules.sh" "$INIT_MD" \
-  || fail "expected sillok-init.md to call refresh-rules.sh"
+  || fail "expected skills/init/SKILL.md to call refresh-rules.sh"
 pass "refresh-rules.sh referenced"
 
 echo "test: old skip-if-exists config notice is gone"

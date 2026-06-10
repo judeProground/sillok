@@ -8,6 +8,8 @@ A GitHub issue is the canonical record of one feature. Its body holds the spec i
 
 The plugin is built around five workflow commands plus one bootstrap command. They preserve a proven pipeline structure (issue creation, design brainstorming with spec inlining, plan generation with subagent-driven execution, end-of-plan whole-branch verification, PR creation) and connect them through a single per-project configuration file.
 
+**Architecture:** each command is a thin pointer wrapper over a per-stage skill (`skills/<stage>/SKILL.md` holds the actual procedure), and a `sillok:workflow` orchestrator skill owns the stage chain — it proposes the next stage by default, or runs the whole start → design → execute → end chain unprompted (stopping after PR creation, never merging) when `automation.fullAuto: true` is set in `workflow.config.json`. A SessionStart hook injects a small sillok context block in configured projects.
+
 ## Install
 
 ```bash
@@ -119,6 +121,8 @@ A JSON Schema (`schema/v1.json`) is referenced from the config via `$schema` so 
 
 ## Skills bundled
 
+- `sillok:workflow` — stage orchestrator (the auto-triggering entry point; reads `automation.fullAuto`)
+- `sillok:start` / `sillok:design` / `sillok:execute` / `sillok:end` / `sillok:story` / `sillok:init` — per-stage skill bodies behind the commands above (not directly user-invocable)
 - `sillok:verify-gate` — whole-branch verification (lint/typecheck/format auto-fix → code review)
 - `sillok:verify-spec-gate` — spec compliance reference (patterns, principles, smells)
 - `sillok:gh-issue-management` — canonical GitHub-issue procedure
