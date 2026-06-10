@@ -40,7 +40,7 @@ Why: bash is much cheaper than LLM tool round-trips for state checks, and printi
 
 Two hard contracts from the refactor (story #15): `${CLAUDE_PLUGIN_ROOT}` script invocations live in SKILL.md bodies ONLY (substitution is guaranteed for skill content; subfiles like `skills/end/pr-body-templates.md` are read raw, so they stay pure prose/templates), and wrappers never use `$ARGUMENTS` (consumer shims raw-read them) — argument pass-through is prose. Both are lint-enforced (see Testing).
 
-Stage chaining is owned by the `sillok:workflow` orchestrator skill: stage skills end with a one-line handoff ("invoke `sillok:workflow` to decide the next step"), and only the orchestrator knows the transition map and reads the `automation` config (`automation.fullAuto: true` runs start → design → execute → end unprompted, stopping after PR creation; absent key == propose mode). `init` sits outside the chain and is never auto-routed. Stage skills carry `user-invocable: false` and neutral descriptions; the workflow skill is the single auto-fire entry point ("Use when..." trigger description).
+Stage chaining is owned by the `sillok:workflow` orchestrator skill: stage skills end with a one-line handoff ("invoke `sillok:workflow` to decide the next step"), and only the orchestrator knows the transition map and reads the `automation` config (`automation.fullAuto: true` runs start → design → execute → end unprompted, stopping after PR creation; absent key == propose mode). `init` sits outside the chain and is never auto-routed. Stage skills carry `user-invocable: false` and deferral-marker descriptions ("Internal sillok stage skill — enter via the `/sillok-<stage>` command or a `sillok:workflow` handoff"); the workflow skill is the single auto-fire entry point ("Use when..." trigger description).
 
 ### SessionStart hook
 
@@ -140,7 +140,7 @@ v2.0 replaced label-based type/stage tracking with GitHub-native primitives:
 
 Tests live in `tests/*.test.sh`. Each test is a standalone bash script that creates a temp directory, exercises one script, and prints `pass`/`fail` lines. To add a new test: create `tests/<script-name>.test.sh`, define `pass()`/`fail()` helpers, and follow the existing pattern of setting up a temp project with `CLAUDE_PLUGIN_ROOT` pointing at the repo root.
 
-Three lint tests enforce the skill-wrapper architecture: `command-wrapper-lint.test.sh` (every `commands/sillok-*.md` is a ≤15-line pointer wrapper — no `${CLAUDE_PLUGIN_ROOT}`, no `$ARGUMENTS`, no `## Step`), `skill-frontmatter.test.sh` (stage skills declare `name` + `user-invocable: false` + a neutral description; only `skills/workflow` gets "Use when..." trigger phrasing), and `skill-subfile-lint.test.sh` (`${CLAUDE_PLUGIN_ROOT}` is forbidden in skill subfiles — substitution only happens in SKILL.md bodies). Markdown skill bodies themselves are LLM-executed, so structural contracts are grep-anchored against `skills/<stage>/SKILL.md` (e.g. `sillok-init-detection.test.sh`, `sillok-init-migration.test.sh`).
+Three lint tests enforce the skill-wrapper architecture: `command-wrapper-lint.test.sh` (every `commands/sillok-*.md` is a ≤15-line pointer wrapper — no `${CLAUDE_PLUGIN_ROOT}`, no `$ARGUMENTS`, no `## Step`), `skill-frontmatter.test.sh` (stage skills declare `name` + `user-invocable: false` + a deferral-marker description; among the workflow-chain skills, only `skills/workflow` gets "Use when..." trigger phrasing — the three reference skills keep theirs), and `skill-subfile-lint.test.sh` (`${CLAUDE_PLUGIN_ROOT}` is forbidden in skill subfiles — substitution only happens in SKILL.md bodies). Markdown skill bodies themselves are LLM-executed, so structural contracts are grep-anchored against `skills/<stage>/SKILL.md` (e.g. `sillok-init-detection.test.sh`, `sillok-init-migration.test.sh`).
 
 ## Bash conventions
 
@@ -164,7 +164,7 @@ Grep for the old version string before each release: `grep -rn "$OLD_VERSION" .c
 
 Workflow skills (story #15 refactor):
 
-- `sillok:workflow` — stage orchestrator; the ONLY skill with a "Use when..." auto-trigger description. Owns the transition map (start → design → execute → end; story loop), reads `automation.fullAuto` (propose mode by default; full-auto chains stages unprompted and stops after PR creation, never merging), and never routes `init`.
+- `sillok:workflow` — stage orchestrator; the only workflow-chain skill with a "Use when..." auto-trigger description (the three reference skills keep their "Use when/Use after" descriptions by design). Owns the transition map (start → design → execute → end; story loop), reads `automation.fullAuto` (propose mode by default; full-auto chains stages unprompted and stops after PR creation, never merging), and never routes `init`.
 - `sillok:start` — create GH issue + Issue Type + assignee + linked branch + worktree + project status Todo (subfile: `issue-body-template.md`).
 - `sillok:design` — brainstorm + spec, paste spec into issue body, status In Design (subfile: `story-mode.md` for story-design).
 - `sillok:execute` — write plan, subagent-driven execution, end-of-plan verify-gate, status In Progress.
@@ -172,7 +172,7 @@ Workflow skills (story #15 refactor):
 - `sillok:story` — create or promote-to a story (parent issue + integration branch + worktree).
 - `sillok:init` — project bootstrap; idempotent; outside the workflow chain (always interactive, never auto-routed).
 
-Stage skills (everything above except `workflow`) carry `user-invocable: false` and neutral descriptions — entry is via the wrapper commands or a `sillok:workflow` handoff.
+Stage skills (everything above except `workflow`) carry `user-invocable: false` and deferral-marker descriptions leading with "Internal sillok stage skill — enter via the `/sillok-<stage>` command or a `sillok:workflow` handoff" — pointing entry at the wrappers and the orchestrator.
 
 Reference skills:
 
