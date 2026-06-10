@@ -34,7 +34,11 @@ Derive position locally, then route:
 source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/config.sh"
 branch=$(git branch --show-current)
 regex=$(sillok_branch_prefix_regex)
-[[ "$branch" =~ ^${regex}([0-9]+)-(.+)$ ]] && echo "matched: $branch" || echo "no sillok branch: $branch"
+issue_num=""
+if printf '%s\n' "$branch" | grep -qE "^${regex}[0-9]+-.+$"; then
+  issue_num=$(printf '%s\n' "$branch" | grep -oE "^${regex}[0-9]+" | grep -oE '[0-9]+$')
+fi
+if [ -n "$issue_num" ]; then echo "sillok branch: $branch → issue #$issue_num"; else echo "no sillok branch: $branch"; fi
 ```
 
 - **No match (base branch or unrelated branch)** → position is *before the chain*: next stage is `start` (or `story` if the user wants a multi-issue composite).
@@ -44,7 +48,7 @@ regex=$(sillok_branch_prefix_regex)
   - Spec exists, no plan / tasks unchecked → next is `execute`.
   - Plan complete, verify-gate passed → next is `end`.
 
-Note: the `{type}` alternation in the regex injects a capture group BEFORE the issue number — walk `BASH_REMATCH` for the first numeric capture rather than hardcoding indices.
+Note: the snippet is deliberately grep-pipeline based, NOT `[[ =~ ]]` + `BASH_REMATCH` — the Bash tool may run zsh, where `BASH_REMATCH` is empty even on a successful match. Positional captures are unreliable anyway: the `{type}` alternation in the regex injects a capture group BEFORE the issue number, so the issue number is not `\1`. Extracting the digit run that immediately follows the resolved prefix sidesteps both problems.
 
 ## Transition map
 
@@ -91,6 +95,7 @@ At chain ENTRY and at EVERY stage boundary, propose the next stage in one line a
 
 ## Full-auto mode (`automation.fullAuto: true`)
 
+- **Entry confirmation (once, natural-language entry only):** when the chain is ENTERED via natural-language intent — not an explicit `/sillok-*` command and not a stage-completion handoff — confirm the interpreted intent ONCE before the first gh/git mutation (e.g. "Interpreting this as: start a new feature for X — go?"). After that single confirmation the chain runs unprompted. Mid-chain stage boundaries stay unprompted. Explicit-command entry needs no confirmation.
 - Invoke the next stage directly — no proposal, no waiting.
 - Design-phase judgment calls (scope, approach, naming, trade-offs) are decided by Claude. EVERY such decision is recorded in the issue's `## Key decisions` section for post-hoc review. PR review is the safety net.
 - The chain STOPS after PR creation. NEVER merge — not the sub-issue PR, not the story PR. The stop point is fixed.
