@@ -216,10 +216,24 @@ sillok_project_status_set() {
   field_id=$(sillok_project_field_id "$field_name")
   option_id=$(sillok_project_option_id "$field_name" "$option_name")
 
-  if [[ -z "$project_id" || -z "$field_id" || -z "$option_id" ]]; then
-    echo "[sillok] could not resolve project_id=$project_id field_id=$field_id option_id=$option_id" >&2
+  if [[ -z "$item_id" || -z "$project_id" || -z "$field_id" || -z "$option_id" ]]; then
+    echo "[sillok] could not resolve item_id=$item_id project_id=$project_id field_id=$field_id option_id=$option_id" >&2
     return 1
   fi
+
+  # Tripwire: a resolver that leaks debug text to stdout (or a caller passing
+  # a contaminated item_id captured the same way) would pollute these ids and
+  # produce a malformed mutation (GraphQL "Expected string"). Refuse loudly
+  # instead of sending garbage. Ids are base64ish node ids / hex option ids —
+  # never contain whitespace or shell-noise characters.
+  local _id
+  for _id in "$item_id" "$project_id" "$field_id" "$option_id"; do
+    case "$_id" in
+      *[![:alnum:]_=-]*)
+        echo "[sillok] malformed GraphQL id '$_id' — refusing to send mutation (a resolver leaked non-id output to stdout?)" >&2
+        return 1 ;;
+    esac
+  done
 
   gh api graphql -f query="mutation {
     updateProjectV2ItemFieldValue(input: {
