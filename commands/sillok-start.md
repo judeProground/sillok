@@ -216,21 +216,23 @@ The `-b <branch> origin/main` form inside the script creates a new branch named 
 
 Note: `git worktree` does NOT auto-symlink dependency directories (`node_modules`, `vendor`, etc.) — the `install` command run inside the script gets a fresh install for the new worktree.
 
-## Step 10b: Push branch + link to issue (Development panel)
+## Step 10b: Link branch to issue (Development panel), THEN push
 
-Push the new branch so GitHub knows about it, then register the linked-branch relationship.
+Order matters: `createLinkedBranch` is **create-only** — when the named branch already exists on the remote, the mutation silently returns `{linkedBranch: null}` (exit 0, no error) and the issue never gets the link. So the link MUST run before the branch exists on the remote, i.e. before the first push. Under `orgMode=false` the helper no-ops and the push creates the remote branch as before; under org mode the mutation itself creates the remote ref, so the subsequent push is a content no-op that just sets the upstream.
 
 ```bash
 worktree_path=".worktrees/<slug>"
-(cd "$worktree_path" && git push -u origin "<branch>")
 
 # Resolve SHA of new branch tip
 BRANCH_SHA=$(cd "$worktree_path" && git rev-parse HEAD)
 
-# Look up GraphQL node IDs and create the linked branch
+# Look up GraphQL node IDs and create the linked branch FIRST (create-only mutation)
 source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dev-link.sh"
 ISSUE_NODE_ID=$(sillok_issue_node_id "$REPO" "$N")
 sillok_link_branch "$ISSUE_NODE_ID" "<branch>" "$BRANCH_SHA"
+
+# THEN push — sets upstream; creates the remote branch when orgMode=false
+(cd "$worktree_path" && git push -u origin "<branch>")
 ```
 
 ## Step 10c: Add to project + set status Todo
