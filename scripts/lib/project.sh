@@ -4,10 +4,10 @@
 # Status writes are idempotent at the GitHub level (re-setting same value = no-op).
 set -euo pipefail
 
-# Resolve this file's directory under bash AND zsh (nounset-safe).
-# zsh: ${(%):-%x} expands to the file being sourced; eval defers the
-# zsh-only syntax so bash never parses it. ${BASH_SOURCE[0]:-$0} is NOT
-# usable — zsh trips nounset on the unset array subscript itself.
+# Resolve this file's directory under bash AND zsh (nounset-safe), so the
+# plugin root can be derived when CLAUDE_PLUGIN_ROOT is not exported.
+# zsh: ${(%):-%x} expands to the file currently being sourced; eval defers
+# the zsh-only syntax so bash never parses it.
 if [[ -n "${BASH_VERSION:-}" ]]; then
   _SILLOK_LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 elif [[ -n "${ZSH_VERSION:-}" ]]; then

@@ -23,12 +23,15 @@ WORKDIR=$(mktemp -d)
 trap 'rm -f "$STDERR_FILE"; rm -rf "$WORKDIR"' EXIT
 
 # Snippets run from a neutral cwd so a cwd-relative lib-dir fallback can never
-# accidentally find config.sh and mask the bug.
+# accidentally find config.sh and mask the bug. Shells are hermetic: zsh -f
+# (NO_RCS) skips ~/.zshenv noise, and bash runs with BASH_ENV unset; the
+# snippets set their own options, so behavior under test is unchanged.
 run_in() {
   local shell="$1" snippet="$2"
   case "$shell" in
-    zsh-sh) zsh -c "emulate sh; set -euo pipefail; export CLAUDE_PLUGIN_ROOT='$REPO_ROOT'; cd '$WORKDIR'; $snippet" ;;
-    *)      "$shell" -c "set -euo pipefail; export CLAUDE_PLUGIN_ROOT='$REPO_ROOT'; cd '$WORKDIR'; $snippet" ;;
+    zsh-sh) zsh -f -c "emulate sh; set -euo pipefail; export CLAUDE_PLUGIN_ROOT='$REPO_ROOT'; cd '$WORKDIR'; $snippet" ;;
+    zsh)    zsh -f -c "set -euo pipefail; export CLAUDE_PLUGIN_ROOT='$REPO_ROOT'; cd '$WORKDIR'; $snippet" ;;
+    *)      env -u BASH_ENV "$shell" -c "set -euo pipefail; export CLAUDE_PLUGIN_ROOT='$REPO_ROOT'; cd '$WORKDIR'; $snippet" ;;
   esac
 }
 
