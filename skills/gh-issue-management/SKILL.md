@@ -1,6 +1,6 @@
 ---
 name: gh-issue-management
-description: Use when creating, updating, closing, triaging, or linking GitHub issues in your project. Covers issue title and body conventions, GitHub Issue Types (Epic/Story/Feature/Task/Bug), Projects v2 Status field for stage, priority + nature labels, milestone naming, cross-repo sub-issue parent-child linking via GraphQL, linked-branch registration, and the eight management flows (new feature, pick up existing, quick fix, new project, search and dedup, sprint planning, triage backlog, mid-session discovery).
+description: Use when creating, updating, closing, triaging, or linking GitHub issues in your project. Covers issue title and body conventions, GitHub Issue Types (Epic/Story/Feature/Task/Bug), Projects v2 Status field for stage, priority (labels on user repos / board Priority field on org repos) + nature labels, milestone naming, cross-repo sub-issue parent-child linking via GraphQL, linked-branch registration, and the eight management flows (new feature, pick up existing, quick fix, new project, search and dedup, sprint planning, triage backlog, mid-session discovery).
 ---
 
 # Sillok GH Issue Management
@@ -198,7 +198,7 @@ Each flow has the same shape: When → Steps → Done state.
 
 **When:** Small bug, no design needed.
 
-1. Create issue with `type=Bug`, priority appropriate to severity (default `p2` for user-affecting bugs). Project workflow sets Status to `Todo` on add.
+1. Create issue with `type=Bug`, priority appropriate to severity (default `p2` for user-affecting bugs; user repos: `p2` label; org repos: board Priority field after the project add). Project workflow sets Status to `Todo` on add.
 2. Branch immediately, fix, commit with `(#N)` suffix per `.claude/rules/commit-conventions.md`.
 3. PR with `Closes #N` in body. Auto-closes on merge.
 
