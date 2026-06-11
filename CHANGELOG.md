@@ -6,18 +6,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added
-- `/sillok-add` — lightweight backlog capture: issue + self-assign + board status `Backlog`, no branch/worktree/milestone (#33)
-- `/sillok-start <N>` adopt mode — pick up an existing issue with full environment setup, assignee/milestone backfill, and a soft gate on active statuses (#33)
-- `backlog` logical status in `project.statuses` (schema + template; existing consumer configs pick it up via per-key fallback or `/sillok-init` re-run) (#33)
-
 ## [3.0.0] — 2026-06-11
 
-Major release: the skill-wrapper refactor (story #15). Commands are now thin pointers; the substantive workflow lives in skills, with a new orchestrator, an automation mode, and a SessionStart hook. **No breaking changes for consumers** — all `/sillok-*` commands and existing shims keep working unchanged; the major bump reflects the architecture shift and the new auto-trigger surface.
+Major release: the skill-wrapper refactor (story #15) plus the backlog workflow (#33) and the org-mode Priority field (#66). Commands are now thin pointers; the substantive workflow lives in skills, with a new orchestrator, an automation mode, and a SessionStart hook. **No breaking changes for consumers** — all `/sillok-*` commands and existing shims keep working unchanged; the major bump reflects the architecture shift and the new auto-trigger surface.
 
 > **Requires a recent Claude Code client** (developed and tested on 2.1.x). The plugin now relies on `${CLAUDE_PLUGIN_ROOT}` substitution inside SKILL.md content, the `user-invocable` skill frontmatter field, and automatic plugin-hook discovery (`hooks/hooks.json`). Upgrade Claude Code before upgrading sillok.
 
-> **Upgrading consumer projects: re-run `/sillok-init` after updating** to refresh `.claude/sillok/rules/{sillok-workflow,pr-convention}.md`, which previously documented the dead `/sillok-epic` model and now describe stories and the orchestrator. The SessionStart hook itself ships with the plugin and needs no re-init; the `automation` config key is deep-merged into your config on re-init (absent key == propose mode, so skipping re-init is safe too).
+> **Upgrading consumer projects: re-run `/sillok-init` after updating.** It refreshes `.claude/sillok/rules/{sillok-workflow,pr-convention}.md` (which previously documented the dead `/sillok-epic` model), deep-merges the new config keys (`automation`, `project.statuses.backlog`, `project.priorityField`, `project.priorities`), and — **required for org-mode repos** — creates/maps the board's Priority field; until then, `/sillok-start` warns "priority not set" at the end of each run (non-fatal). The SessionStart hook itself ships with the plugin and needs no re-init; absent config keys fall back to safe template defaults, so skipping re-init degrades gracefully on user-mode repos.
+
+### Added (backlog workflow, #33)
+- `/sillok-add` — lightweight backlog capture: issue + self-assign + board status `Backlog`, no branch/worktree/milestone.
+- `/sillok-start <N>` adopt mode — pick up an existing issue with full environment setup, assignee/milestone backfill, and a soft gate on active statuses (board status and Priority are KEPT, never reset by adoption).
+- `backlog` logical status in `project.statuses` (schema + template; existing consumer configs pick it up via per-key fallback or `/sillok-init` re-run).
+
+### Added (org-mode Priority field, #66)
+- Org repos manage priority on the board: `/sillok-start`/`/sillok-story` set the Projects v2 **Priority field** instead of `p1`–`p4` labels (hard switch, no dual-write; user repos keep labels unchanged). `bootstrap-labels.sh` skips p-labels in org mode.
+- `/sillok-init` ensures the field: auto-creates a single-select `Priority` (Urgent/High/Medium/Low, p1→p4) when absent; when a board already has one with different option names, proposes the closest `project.priorities` mapping (one conditional question; auto-accepted in auto-mode). Neither sillok keys nor board options are renamed — the config mapping absorbs naming, mirroring `statuses`.
+- `lib/project.sh`: shared single-select core for status + priority (the #47 guards, option-not-found guard, and malformed-id tripwire now protect both), `sillok_project_priority_field_ensure` (GraphQL `createProjectV2Field`), and colon-safe cache parsing for both the option and field caches.
+- Deferred: migrating existing org `p*` labels into the field (`migrate-v1-to-v2.sh` untouched).
 
 ### Changed
 - **All six commands refactored into skill packages (#15, #55–#58).** Each `commands/sillok-*.md` is now a ≤15-line version-stable pointer wrapper; the procedure bodies moved to `skills/{start,design,execute,end,story,init}/SKILL.md` with subfiles for bulky templates (`issue-body-template.md`, `story-mode.md`, `pr-body-templates.md`). Behavior equivalence was the migration bar — step-mapping diffs against the originals were reviewed per batch. Hard contracts, lint-enforced by three new tests: `${CLAUDE_PLUGIN_ROOT}` script invocations live in SKILL.md bodies only; wrappers never use `$ARGUMENTS`; each wrapper invokes its matching stage skill.
@@ -29,7 +35,12 @@ Major release: the skill-wrapper refactor (story #15). Commands are now thin poi
 - **SessionStart hook.** Injects a compact sillok context block (automation mode, branch ↔ issue) in sillok-configured projects. Hard contract: always exits 0, fully silent outside sillok projects and on any error, no network or `gh` calls. Ships with the plugin — no re-init needed.
 - **Story integration branches are a sanctioned `--parent` start point**: `precompute-start.sh` no longer aborts on `story/issue-N-*` branches (emits a `STORY-BRANCH` proceed signal instead).
 
+### Changed
+- **Design stage has a single review gate (#64).** Key decisions are distilled BEFORE the spec confirmation and reviewed with it in one message — the separate key-decisions confirm loop is gone (recording afterwards is informational). The Language section gains a **Korean prose style contract** (complete sentences, no 개조식 noun endings, no idiom calques, backticked code tokens, 결정 → 이유 → 기각한 대안 order) so Korean specs stop reading like compressed logs.
+
 ### Fixed
+- **Open Story/Epic suggestions were always empty on org repos (#41).** `precompute-start.sh` used the non-existent GraphQL `filterBy:{issueType}` argument and masked the rejection; both queries now use the Search API's `type:` qualifier (live-verified) and warn on stderr instead of failing silently. Guarded by a query-lint test.
+- **Project status updates silently broke under zsh with multi-option boards (#65).** The option-cache loop re-declared `local` per iteration; zsh prints `name=value` on re-declaration, so from the second option onward values leaked into stdout and corrupted the GraphQL ids passed to `sillok_project_status_set`. Declaration hoisted; all four sourced libs audited (no other instances); hermetic 3-shell regression test added. Also fixed in passing: option-cache id parsing now splits on the LAST colon, so option names containing `:` resolve correctly.
 - Consumer rule templates (`sillok-workflow.md`, `pr-convention.md`) modernized from the dead v1 `/sillok-epic` + `epic/issue-*` vocabulary to the story model; README's stale "zero-prompt init" and rank-threshold area-detection claims replaced with the actual at-most-two-questions hybrid flow.
 
 ## [2.4.1] — 2026-06-10
