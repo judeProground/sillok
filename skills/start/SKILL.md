@@ -64,6 +64,7 @@ Then:
 3. **Branch type** comes precomputed: read the Adopt block's `Branch type:` line as ground truth (the script lowercases the issue type and defaults unknown to `feature` — don't re-derive it).
 4. Continue with **Step 9 (slug + branch)** using the issue's title — the non-ASCII translation rule applies as usual — then Step 9b (the Adopt block's `Parent:` line feeds the integration-branch lookup), Step 10, 10b, and 10c.
 5. **Step 10c status nuance:** after `ADOPT-OK`, set status `todo` as usual (this is the Backlog → Todo promotion). After a confirmed `ADOPT-WARN`, do NOT touch the status — skip the `sillok_project_status_set` call and keep the board as-is.
+   **Priority is never touched in adopt mode** (`ADOPT-OK` or `ADOPT-WARN` alike): skip the `sillok_project_priority_set` call — an adopted issue keeps whatever board Priority it already has, for the same KEEP reason: the board state predates this run and sillok must not clobber it.
 6. In the Step 11 output, mark the issue line as `(adopted #N)`.
 
 ## Language
@@ -285,9 +286,12 @@ sillok_project_status_set "$ITEM_ID" todo
 # (default: the labels.defaults.priority config key). User mode skips this —
 # the p-label from Step 7 is the priority record there.
 if [[ "$(sillok_config orgMode)" == "true" ]]; then
-  sillok_project_priority_set "$ITEM_ID" "<priority-key>"
+  sillok_project_priority_set "$ITEM_ID" "<priority-key>" \
+    || echo "[sillok] priority not set — re-run /sillok-init to create/map the board's Priority field" >&2
 fi
 ```
+
+Priority failure is NON-FATAL: the issue, branch, and worktree exist either way — surface the warning and continue (a board initialized before the org-mode priority split has no Priority field until `/sillok-init` is re-run). **Adopt mode skips this call entirely** — see the adopt rules above.
 
 ## Step 11: Output
 

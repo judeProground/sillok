@@ -155,9 +155,12 @@ Used when the user is on `main`, an unrelated branch, or a fresh worktree.
     # was applied in step 4); default key from labels.defaults.priority.
     # User mode keeps the p3 label from step 4 instead.
     if [[ "$(sillok_config orgMode)" == "true" ]]; then
-      sillok_project_priority_set "$ITEM_ID" "$(sillok_config labels.defaults.priority)"
+      sillok_project_priority_set "$ITEM_ID" "$(sillok_config labels.defaults.priority)" \
+        || echo "[sillok] priority not set — re-run /sillok-init to create/map the board's Priority field" >&2
     fi
     ```
+
+    Priority failure is NON-FATAL: the story issue, branch, and worktree exist either way — surface the warning and continue (a board initialized before the org-mode priority split has no Priority field until `/sillok-init` is re-run).
 
 11. Print summary:
 
