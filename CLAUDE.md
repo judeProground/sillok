@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is **sillok** — a Claude Code plugin, not an application that uses one. The unit of shipping is a `.claude-plugin/plugin.json` manifest plus the slash commands, skills, scripts, schema, and rule templates that get installed into _other_ projects via `/plugin marketplace add judeProground/sillok`.
 
-Concretely, the plugin is six thin wrapper commands under `commands/` (pointer-only; each invokes its stage skill), ten skills under `skills/` — seven workflow skills (`workflow` orchestrator + `start`/`design`/`execute`/`end`/`story`/`init` stage skills) and three reference skills (`verify-gate`, `verify-spec-gate`, `gh-issue-management`) — a SessionStart hook under `hooks/`, helper bash scripts under `scripts/`, a JSON config schema in `schema/v1.json`, and the rule + config templates copied into consumer projects by `/sillok-init` (under `templates/`).
+Concretely, the plugin is seven thin wrapper commands under `commands/` (pointer-only; each invokes its stage skill), eleven skills under `skills/` — eight workflow skills (`workflow` orchestrator + `start`/`add`/`design`/`execute`/`end`/`story`/`init` stage skills) and three reference skills (`verify-gate`, `verify-spec-gate`, `gh-issue-management`) — a SessionStart hook under `hooks/`, helper bash scripts under `scripts/`, a JSON config schema in `schema/v1.json`, and the rule + config templates copied into consumer projects by `/sillok-init` (under `templates/`).
 
 Do **not** run `/sillok-init` inside this repo — it's for downstream projects, not for the plugin's own development.
 
@@ -44,7 +44,7 @@ Why: bash is much cheaper than LLM tool round-trips for state checks, and printi
 
 Two hard contracts from the refactor (story #15): `${CLAUDE_PLUGIN_ROOT}` script invocations live in SKILL.md bodies ONLY (substitution is guaranteed for skill content; subfiles like `skills/end/pr-body-templates.md` are read raw, so they stay pure prose/templates), and wrappers never use `$ARGUMENTS` (consumer shims raw-read them) — argument pass-through is prose. Both are lint-enforced (see Testing).
 
-Stage chaining is owned by the `sillok:workflow` orchestrator skill: stage skills end with a one-line handoff ("invoke `sillok:workflow` to decide the next step"), and only the orchestrator knows the transition map and reads the `automation` config (`automation.fullAuto: true` runs start → design → execute → end unprompted, stopping after PR creation; absent key == propose mode). `init` sits outside the chain and is never auto-routed. Stage skills carry `user-invocable: false` and deferral-marker descriptions ("Internal sillok stage skill — enter via the `/sillok-<stage>` command or a `sillok:workflow` handoff"); the workflow skill is the single auto-fire entry point ("Use when..." trigger description).
+Stage chaining is owned by the `sillok:workflow` orchestrator skill: stage skills end with a one-line handoff ("invoke `sillok:workflow` to decide the next step"), and only the orchestrator knows the transition map and reads the `automation` config (`automation.fullAuto: true` runs start → design → execute → end unprompted, stopping after PR creation; absent key == propose mode). `init` and `add` sit outside the chain and are never auto-routed. Stage skills carry `user-invocable: false` and deferral-marker descriptions ("Internal sillok stage skill — enter via the `/sillok-<stage>` command or a `sillok:workflow` handoff"); the workflow skill is the single auto-fire entry point ("Use when..." trigger description).
 
 ### SessionStart hook
 
@@ -97,7 +97,7 @@ Preserve this when modifying init/bootstrap logic. Consumer projects re-run `/si
 
 ### Command shortcut shims
 
-Claude Code namespaces plugin commands (`/sillok:sillok-start`). Users prefer the shorter `/sillok-start` form, which requires standalone-style files at `<project>/.claude/commands/sillok-*.md`. `scripts/write-shim-commands.sh` writes 5 pointer-only shim files during `/sillok-init`; each shim resolves the latest installed plugin version at runtime (`ls -d ~/.claude/plugins/cache/sillok/sillok/*/ | sort -V | tail -1`) and delegates to the canonical command. So plugin upgrades require no re-init for shim freshness.
+Claude Code namespaces plugin commands (`/sillok:sillok-start`). Users prefer the shorter `/sillok-start` form, which requires standalone-style files at `<project>/.claude/commands/sillok-*.md`. `scripts/write-shim-commands.sh` writes 6 pointer-only shim files during `/sillok-init`; each shim resolves the latest installed plugin version at runtime (`ls -d ~/.claude/plugins/cache/sillok/sillok/*/ | sort -V | tail -1`) and delegates to the canonical command. So plugin upgrades require no re-init for shim freshness.
 
 The `sillok-shim: true` frontmatter marker identifies sillok-managed shims for idempotent refresh. Foreign files at the same path (no marker) are preserved untouched — users can write their own custom command at `.claude/commands/sillok-start.md` and sillok will skip it.
 
@@ -125,6 +125,7 @@ v2.0 replaced label-based type/stage tracking with GitHub-native primitives:
 | Script | Purpose |
 |--------|---------|
 | `precompute-{start,design,execute,end}.sh` | State derivation for each stage skill |
+| `precompute-add.sh` | Lightweight state derivation for /sillok-add (no branch guard, no milestone section) |
 | `setup-feature-worktree.sh` | Creates worktree + branch for a new issue |
 | `bootstrap-labels.sh` | Idempotent GitHub label creation |
 | `project-tree.sh` | Emits a pruned directory tree (junk-removed, no depth cap) for area-label classification |
@@ -169,7 +170,8 @@ Grep for the old version string before each release: `grep -rn "$OLD_VERSION" .c
 Workflow skills (story #15 refactor):
 
 - `sillok:workflow` — stage orchestrator; the only workflow-chain skill with a "Use when..." auto-trigger description (the three reference skills keep their "Use when/Use after" descriptions by design). Owns the transition map (start → design → execute → end; story loop), reads `automation.fullAuto` (propose mode by default; full-auto chains stages unprompted and stops after PR creation, never merging), and never routes `init`.
-- `sillok:start` — create GH issue + Issue Type + assignee + linked branch + worktree + project status Todo (subfile: `issue-body-template.md`).
+- `sillok:start` — create GH issue + Issue Type + assignee + linked branch + worktree + project status Todo (subfile: `issue-body-template.md`); `/sillok-start <N>` adopts an existing issue (full env setup + backfill, Backlog → Todo, soft gate on active statuses).
+- `sillok:add` — backlog capture: issue + Issue Type + self-assign + status Backlog; NO branch/worktree/milestone. Outside the workflow chain (never auto-routed, no handoff); promotion path is `/sillok-start <N>` adopt mode.
 - `sillok:design` — brainstorm + spec, paste spec into issue body, status In Design (subfile: `story-mode.md` for story-design).
 - `sillok:execute` — write plan, subagent-driven execution, end-of-plan verify-gate, status In Progress.
 - `sillok:end` — push, PR per pr-convention, status In QA, parent legacy-checkbox update; never auto-merges (subfile: `pr-body-templates.md`).

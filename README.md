@@ -6,7 +6,7 @@
 
 A GitHub issue is the canonical record of one feature. Its body holds the spec inline (so anyone can read it on GitHub without checking out the repo). A linked plan, a branch on a worktree, a series of commits, and finally a PR — every artifact threads back to that one issue. The issue's card on a Projects v2 board flips through `Todo → In Design → In Progress → In QA → Done` as the work moves.
 
-The plugin is built around five workflow commands plus one bootstrap command. They preserve a proven pipeline structure (issue creation, design brainstorming with spec inlining, plan generation with subagent-driven execution, end-of-plan whole-branch verification, PR creation) and connect them through a single per-project configuration file.
+The plugin is built around six workflow commands — `/sillok-add` for backlog capture and the `start`/`design`/`execute`/`end`/`story` feature pipeline — plus one bootstrap command (`/sillok-init`). They preserve a proven pipeline structure (issue creation, design brainstorming with spec inlining, plan generation with subagent-driven execution, end-of-plan whole-branch verification, PR creation) and connect them through a single per-project configuration file.
 
 **Architecture:** each command is a thin pointer wrapper over a per-stage skill (`skills/<stage>/SKILL.md` holds the actual procedure), and a `sillok:workflow` orchestrator skill owns the stage chain — it proposes the next stage by default, or runs the whole start → design → execute → end chain unprompted (stopping after PR creation, never merging) when `automation.fullAuto: true` is set in `workflow.config.json`. A SessionStart hook injects a small sillok context block in configured projects.
 
@@ -25,8 +25,8 @@ The plugin is built around five workflow commands plus one bootstrap command. Th
 - **Organization repo (recommended) or personal repo.** Org repos get full Issue Types + Projects v2 integration (`orgMode: true`). Personal repos work too — sillok falls back to label-based type tracking when `orgMode: false` (the default).
 - **Org repos only: add missing Issue Types.** Sillok v2 uses `Epic`, `Story`, `Feature`, `Task`, and `Bug` as Issue Types. `Feature`, `Task`, and `Bug` usually exist by default; an org owner must add `Epic` and `Story` from the org-level **Issue Types** settings (Organization → Settings → Issue Types).
 - **A Projects v2 board** (optional for personal repos, recommended for orgs) with:
-  - a `Status` single-select field configured with exactly these five options: **Todo**, **In Design**, **In Progress**, **In QA**, **Done**.
-  - the built-in workflows **"Auto-add to project"** and **"Item closed → Done"** enabled, so new issues land in Todo automatically and merged PRs close their issues into Done.
+  - a `Status` single-select field configured with these six options: **Backlog**, **Todo**, **In Design**, **In Progress**, **In QA**, **Done**. (`Backlog` is used by `/sillok-add`; a board without it still works — sillok warns and skips the backlog parking.)
+  - the built-in workflows **"Auto-add to project"** and **"Item closed → Done"** enabled. Point auto-add's default status at **Backlog** (recommended) so manually-filed issues land in the backlog; sillok commands set their own status explicitly (`/sillok-add` → Backlog, `/sillok-start` → Todo).
 
 Then in any project:
 
@@ -51,13 +51,15 @@ Shims carry a `sillok-shim: true` frontmatter marker; re-running `/sillok-init` 
 ## Workflow
 
 ```
+/sillok-add      # capture a backlog issue — no branch/worktree; status Backlog
 /sillok-start    # create GH issue + Issue Type + assignee + branch + worktree + project Todo
+/sillok-start 41 # ADOPT existing issue #41 — full env setup, Backlog → Todo
 /sillok-design   # brainstorm + spec → project status In Design
 /sillok-execute  # write plan + dispatch subagent execution → project status In Progress
 /sillok-end      # open PR → project status In QA → (auto Done on merge)
 ```
 
-State no longer lives in `stage:*` labels — it lives in the Projects v2 board's `Status` field. Issue Types (`Feature`, `Bug`, `Task`, `Story`, `Epic`) replace the old `type:*` labels. Sillok writes both: it sets the Issue Type on creation and moves the project card through the five `Status` options as the work advances.
+State no longer lives in `stage:*` labels — it lives in the Projects v2 board's `Status` field. Issue Types (`Feature`, `Bug`, `Task`, `Story`, `Epic`) replace the old `type:*` labels. Sillok writes both: it sets the Issue Type on creation and moves the project card through the six `Status` options as the work advances.
 
 For multi-PR work (a composite within one repo), sillok uses an **integration branch** model: every Story gets a real branch (`story/issue-<N>-<slug>`) plus a worktree. Sub-features cut from and PR back to the integration branch; the Story itself merges to base with a merge commit (preserving sub-feature commits).
 
@@ -108,7 +110,7 @@ Cross-repo `Closes #N` syntax is not honored by GitHub, so PRD closure stays man
 - `orgMode` — `true` for org repos (Issue Types + Projects v2 APIs), `false` (default) for personal repos (falls back to label-based type tracking).
 - `automation.{fullAuto}` — boolean, default `false`. When `true`, the `sillok:workflow` orchestrator chains start → design → execute → end without per-stage confirmation, stopping after PR creation (it never merges). An absent key means propose mode.
 - `prdRepo` — *optional.* `owner/name` of a separate repo where Epic-typed PRD issues live, for cross-repo PRD work. Leave empty if PRDs live in the same repo as code.
-- `project.{owner, number, statusField, statuses}` — Projects v2 binding. `owner` is the org/user that owns the project, `number` is the project number from its URL, `statusField` is the single-select field name (default `Status`), and `statuses` maps sillok's five logical phases (`todo` / `design` / `progress` / `review` / `done`) to the option names on your board (defaults: `Todo`, `In Design`, `In Progress`, `In QA`, `Done`).
+- `project.{owner, number, statusField, statuses}` — Projects v2 binding. `owner` is the org/user that owns the project, `number` is the project number from its URL, `statusField` is the single-select field name (default `Status`), and `statuses` maps sillok's six logical phases (`backlog` / `todo` / `design` / `progress` / `review` / `done`) to the option names on your board (defaults: `Backlog`, `Todo`, `In Design`, `In Progress`, `In QA`, `Done`).
 - `types.{list, defaults}` — Issue Type configuration. `list` is the Issue Types sillok expects to exist on the org (default: `["Epic", "Story", "Feature", "Task", "Bug"]`). `defaults` maps sillok roles (`feature`, `composite`, `prd`) to the Issue Type used when creating each (defaults: `Feature`, `Story`, `Epic`).
 - `worktree.{enabled,dir,copyFiles}` — worktree behavior and what gitignored files to copy into new worktrees
 - `install` — command run after a worktree is created (e.g. `pnpm install`)
@@ -123,7 +125,7 @@ A JSON Schema (`schema/v1.json`) is referenced from the config via `$schema` so 
 ## Skills bundled
 
 - `sillok:workflow` — stage orchestrator (the auto-triggering entry point; reads `automation.fullAuto`)
-- `sillok:start` / `sillok:design` / `sillok:execute` / `sillok:end` / `sillok:story` / `sillok:init` — per-stage skill bodies behind the commands above (not directly user-invocable)
+- `sillok:start` / `sillok:add` / `sillok:design` / `sillok:execute` / `sillok:end` / `sillok:story` / `sillok:init` — per-stage skill bodies behind the commands above (not directly user-invocable)
 - `sillok:verify-gate` — whole-branch verification (lint/typecheck/format auto-fix → code review)
 - `sillok:verify-spec-gate` — spec compliance reference (patterns, principles, smells)
 - `sillok:gh-issue-management` — canonical GitHub-issue procedure
@@ -143,7 +145,8 @@ your-project/
 │   │       ├── worktree-setup.md
 │   │       └── spec-driven-development.md
 │   └── commands/
-│       ├── sillok-start.md       # shim (pointer-only, ~10 lines)
+│       ├── sillok-add.md         # shim (pointer-only, ~10 lines)
+│       ├── sillok-start.md
 │       ├── sillok-design.md
 │       ├── sillok-execute.md
 │       ├── sillok-end.md
@@ -154,7 +157,7 @@ your-project/
 └── CLAUDE.md  # @-import block appended
 ```
 
-Everything sillok owns is under `.claude/sillok/` plus 5 shim files under `.claude/commands/sillok-*.md` (carrying `sillok-shim: true` frontmatter so re-init can refresh them without touching your own commands). Your own `.claude/rules/`, other `.claude/commands/`, etc. are not touched.
+Everything sillok owns is under `.claude/sillok/` plus 6 shim files under `.claude/commands/sillok-*.md` (carrying `sillok-shim: true` frontmatter so re-init can refresh them without touching your own commands). Your own `.claude/rules/`, other `.claude/commands/`, etc. are not touched.
 
 ## License
 

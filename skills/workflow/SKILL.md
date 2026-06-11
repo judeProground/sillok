@@ -74,7 +74,7 @@ story → (start --parent N → design → execute → end)  [repeat per sub-iss
       → end  (story-finalize, when current branch is story/issue-N-*)
 ```
 
-`init` is OUTSIDE the chain. It is always interactive and is NEVER auto-run by this skill — even in full-auto mode, a missing config means stop and suggest `/sillok-init`.
+`init` and `add` are OUTSIDE the chain. `init` is always interactive and is NEVER auto-run by this skill — even in full-auto mode, a missing config means stop and suggest `/sillok-init`. `add` is backlog capture, not a stage: never route to it and never treat it as a position — the chain entry for a backlog issue is `/sillok-start <N>` (adopt).
 
 ## Stage routing
 
@@ -126,6 +126,7 @@ Auto-resolution applies to confirmation gates only — verify-gate is never skip
 Related skills and commands:
 
 - `/sillok-init` — one-time project setup (interactive, never routed by this skill)
+- `/sillok-add` — backlog capture (outside the chain — never routed by this skill; promotion path is `/sillok-start <N>`)
 - `/sillok-start`, `/sillok-design`, `/sillok-execute`, `/sillok-end`, `/sillok-story` — thin wrapper commands over the stage skills (the user-facing entry; this skill routes to the skills directly)
 - `sillok:verify-gate` — mandatory whole-branch verification at end-of-plan, in both modes
 - `sillok:gh-issue-management` — issue conventions used inside the stages

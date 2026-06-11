@@ -18,13 +18,13 @@ frontmatter() {
   awk 'NR==1 && $0=="---"{inside=1; next} inside && $0=="---"{exit} inside{print}' "$1"
 }
 
-expected=(sillok-start sillok-design sillok-execute sillok-end sillok-story sillok-init)
+expected=(sillok-start sillok-add sillok-design sillok-execute sillok-end sillok-story sillok-init)
 
 checked=0
 for name in "${expected[@]}"; do
   cmd_md="$REPO_ROOT/commands/$name.md"
   rel="commands/$name.md"
-  [[ -f "$cmd_md" ]] || fail "$rel missing — all six commands must exist as wrappers"
+  [[ -f "$cmd_md" ]] || fail "$rel missing — all seven commands must exist as wrappers"
   checked=$((checked + 1))
 
   fm=$(frontmatter "$cmd_md")
