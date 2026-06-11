@@ -37,7 +37,7 @@ Types are set via REST on create (`POST /repos/{owner}/{repo}/issues -f type=<Ty
 
 ## Stage (Projects v2 Status field — not a label)
 
-Lifecycle stage lives in the project's Status single-select field. The five canonical statuses and the sillok command that writes each:
+Lifecycle stage lives in the project's Status single-select field. The six canonical statuses and the sillok command that writes each:
 
 | Status        | Meaning                                       | Written by                       |
 | ------------- | --------------------------------------------- | -------------------------------- |

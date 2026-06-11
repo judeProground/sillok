@@ -98,6 +98,7 @@ out=$(bash "$REPO_ROOT/scripts/precompute-start.sh" 33)
 echo "$out" | grep -q '### Adopt' || fail "expected Adopt section, got: $out"
 echo "$out" | grep -q 'ADOPT-OK' || fail "expected ADOPT-OK, got: $out"
 echo "$out" | grep -q -- '- Type: feature' || fail "expected user-mode type from label, got: $out"
+echo "$out" | grep -q -- '- Branch type: feature' || fail "expected precomputed branch type, got: $out"
 pass "#33 → ADOPT-OK with label-derived type"
 
 echo "test: '#33' argument form is accepted"
@@ -142,6 +143,20 @@ echo "$out" | grep -q "ADOPT-WARN" || fail "expected ADOPT-WARN for Done status,
 echo "$out" | grep -q "'Done'" || fail "expected Done quoted in warn, got: $out"
 unset GH_STUB_BOARD GH_STUB_STATUS
 pass "#92 Done → ADOPT-WARN"
+
+echo "test: In Design board status → ADOPT-WARN (whitelist gate)"
+export GH_STUB_BOARD=1 GH_STUB_STATUS="In Design"
+out=$(bash "$REPO_ROOT/scripts/precompute-start.sh" 92)
+echo "$out" | grep -q "ADOPT-WARN" || fail "expected ADOPT-WARN for In Design status, got: $out"
+unset GH_STUB_BOARD GH_STUB_STATUS
+pass "#92 In Design → ADOPT-WARN"
+
+echo "test: Todo board status → ADOPT-OK (pre-work whitelist)"
+export GH_STUB_BOARD=1 GH_STUB_STATUS="Todo"
+out=$(bash "$REPO_ROOT/scripts/precompute-start.sh" 92)
+echo "$out" | grep -q "ADOPT-OK" || fail "expected ADOPT-OK for Todo status, got: $out"
+unset GH_STUB_BOARD GH_STUB_STATUS
+pass "#92 Todo → ADOPT-OK"
 
 echo
 echo "All precompute-start adopt tests passed."

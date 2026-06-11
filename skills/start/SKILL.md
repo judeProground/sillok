@@ -52,7 +52,7 @@ When the precompute output contains a `### Adopt` section, you are adopting an e
 Read the verdict line:
 
 - `ADOPT-ABORT:` → hard stop. Surface the reason. If the reason is a Story/Epic type, point the user at `/sillok-story`. If a branch already exists, point at its worktree.
-- `ADOPT-WARN:` → the issue is already past Todo (In Progress / In QA / Done). Ask the user: "Issue #<N> is already '<status>'. Set up the environment anyway? The board status will be kept." Proceed only on explicit confirmation. This gate is ALWAYS interactive — full-auto never auto-resolves it.
+- `ADOPT-WARN:` → the issue's board status is already past the capture stage (anything other than Backlog / Todo / not-on-board — e.g. In Design, In Progress, In QA, Done). Ask the user: "Issue #<N> is already '<status>'. Set up the environment anyway? The board status will be kept." Proceed only on explicit confirmation. This gate is ALWAYS interactive — full-auto never auto-resolves it.
 - `ADOPT-OK:` → proceed directly.
 
 Then:
@@ -61,7 +61,7 @@ Then:
 2. **Backfill** (each only when missing):
    - No assignee → self-assign: `gh issue edit <N> --repo "$REPO" --add-assignee @me`
    - No milestone → attach the current sprint milestone from the `### Sprint milestone` section (create it first via the Step 5 flow if it doesn't exist): `gh issue edit <N> --repo "$REPO" --milestone "<computed>"`
-3. **Derive the branch type** from the Adopt block's `Type` line, lowercased (`Feature` → `feature`, `Bug` → `bug`, `Task` → `task`). Unknown/empty type defaults to `feature`.
+3. **Branch type** comes precomputed: read the Adopt block's `Branch type:` line as ground truth (the script lowercases the issue type and defaults unknown to `feature` — don't re-derive it).
 4. Continue with **Step 9 (slug + branch)** using the issue's title — the non-ASCII translation rule applies as usual — then Step 9b (the Adopt block's `Parent:` line feeds the integration-branch lookup), Step 10, 10b, and 10c.
 5. **Step 10c status nuance:** after `ADOPT-OK`, set status `todo` as usual (this is the Backlog → Todo promotion). After a confirmed `ADOPT-WARN`, do NOT touch the status — skip the `sillok_project_status_set` call and keep the board as-is.
 6. In the Step 11 output, mark the issue line as `(adopted #N)`.

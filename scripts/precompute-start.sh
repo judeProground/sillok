@@ -3,8 +3,6 @@
 # Outputs a markdown block listing: current branch, open epics, computed sprint
 # milestone (and whether it already exists in the repo). The command body reads
 # this once instead of running 3 separate tool round-trips.
-# Optional positional arg ("33" or "#33"): issue number to ADOPT — appends a
-# "### Adopt" section with an ADOPT-OK / ADOPT-WARN / ADOPT-ABORT verdict.
 set -euo pipefail
 
 # Optional positional arg: issue number to ADOPT (accepts "33" or "#33").
@@ -83,11 +81,17 @@ if [[ -n "$ADOPT_N" ]]; then
     a_labels=$(printf '%s' "$issue_json" | jq -r '[.labels[].name] | join(", ")')
     a_milestone=$(printf '%s' "$issue_json" | jq -r '.milestone.title // empty')
     a_assignees=$(printf '%s' "$issue_json" | jq -r '[.assignees[].login] | join(", ")')
-    a_parent=$(printf '%s' "$issue_json" | jq -r '.body // ""' | grep -m1 -E '^Parent: #[0-9]+' | grep -oE '[0-9]+' | head -1 || true)
+    a_parent=$(printf '%s' "$issue_json" | jq -r '.body // ""' | grep -m1 -oE '^Parent: ([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+' | sed 's/^Parent: //' || true)
 
-    # User-mode repos have no Issue Type — fall back to the type label.
+    # User-mode repos have no Issue Type — fall back to the first label that
+    # names a configured type (types.list lowercased — the single source the
+    # branch-prefix machinery already uses).
     if [[ -z "$a_type" ]]; then
-      a_type=$(printf '%s' "$issue_json" | jq -r '[.labels[].name | select(. == "feature" or . == "bug" or . == "task" or . == "story" or . == "epic")] | .[0] // empty')
+      types_lc=$(sillok_config_array types.list | tr '[:upper:]' '[:lower:]')
+      if [[ -n "$types_lc" ]]; then
+        a_type=$(printf '%s' "$issue_json" | jq -r '.labels[].name' \
+          | grep -ixF -f <(printf '%s\n' "$types_lc") | head -1 || true)
+      fi
     fi
     a_type_lc=$(printf '%s' "$a_type" | tr '[:upper:]' '[:lower:]')
 
@@ -98,87 +102,101 @@ if [[ -n "$ADOPT_N" ]]; then
     echo "- Milestone: ${a_milestone:-none}"
     echo "- Assignees: ${a_assignees:-none}"
     if [[ -n "$a_parent" ]]; then
-      echo "- Parent: #$a_parent"
+      echo "- Parent: $a_parent"
     fi
-
-    # Existing sillok branch (remote or local) for this issue number?
-    # Each lookup is individually failure-masked: set -e + pipefail would
-    # otherwise kill the script on a repo with no remote.
-    remote_heads=$(git ls-remote --heads origin 2>/dev/null | awk '{print $2}' | sed 's#^refs/heads/##' || true)
-    local_heads=$(git for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null || true)
-    existing_branch=$(printf '%s\n%s\n' "$remote_heads" "$local_heads" | grep -E "^${prefix_regex}${ADOPT_N}-" | head -1 || true)
-
-    # Board status — best-effort; empty when board unconfigured or not on it.
-    a_status=""
-    a_item_id=$(sillok_project_item_for_issue "https://github.com/$REPO/issues/$ADOPT_N" 2>/dev/null || echo "")
-    if [[ -n "$a_item_id" ]]; then
-      a_status=$(sillok_project_status_get "$a_item_id" 2>/dev/null || echo "")
-    fi
-    echo "- Project status: ${a_status:-not on board}"
-
-    s_progress=$(sillok_config project.statuses.progress)
-    s_review=$(sillok_config project.statuses.review)
-    s_done=$(sillok_config project.statuses.done)
+    # Deterministic branch-type derivation — the skill reads this as ground
+    # truth instead of re-deriving from the Type line (story/epic abort below).
+    echo "- Branch type: ${a_type_lc:-feature}"
 
     if [[ "$a_state" != "open" && "$a_state" != "OPEN" ]]; then
+      # Early exit: a dead issue never needs the branch/board lookups below.
       echo "- ADOPT-ABORT: issue #$ADOPT_N is $a_state"
     elif [[ "$a_type_lc" == "story" || "$a_type_lc" == "epic" ]]; then
       echo "- ADOPT-ABORT: #$ADOPT_N is a ${a_type} — composites go through /sillok-story, not adopt"
-    elif [[ -n "$existing_branch" ]]; then
-      echo "- ADOPT-ABORT: branch \`$existing_branch\` already exists for #$ADOPT_N — environment is already set up (switch to its worktree instead)"
-    elif [[ -n "$a_status" && ( "$a_status" == "$s_progress" || "$a_status" == "$s_review" || "$a_status" == "$s_done" ) ]]; then
-      echo "- ADOPT-WARN: #$ADOPT_N is already '$a_status' — confirm with the user before setting up the environment (board status will be KEPT, not reset to Todo)"
     else
-      echo "- ADOPT-OK: ready to adopt (board status will be set to Todo)"
+      # Existing sillok branch (remote or local) for this issue number?
+      # Each lookup is individually failure-masked: set -e + pipefail would
+      # otherwise kill the script on a repo with no remote.
+      remote_heads=$(git ls-remote --heads origin 2>/dev/null | awk '{print $2}' | sed 's#^refs/heads/##' || true)
+      local_heads=$(git for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null || true)
+      existing_branch=$(printf '%s\n%s\n' "$remote_heads" "$local_heads" | grep -E "^${prefix_regex}${ADOPT_N}-" | head -1 || true)
+
+      if [[ -n "$existing_branch" ]]; then
+        echo "- ADOPT-ABORT: branch \`$existing_branch\` already exists for #$ADOPT_N — environment is already set up (switch to its worktree instead)"
+      else
+        # Board status — best-effort; empty when board unconfigured or not on it.
+        a_status=""
+        a_item_id=$(sillok_project_item_for_issue "https://github.com/$REPO/issues/$ADOPT_N" 2>/dev/null || echo "")
+        if [[ -n "$a_item_id" ]]; then
+          a_status=$(sillok_project_status_get "$a_item_id" 2>/dev/null || echo "")
+        fi
+        echo "- Project status: ${a_status:-not on board}"
+
+        # Whitelist gate: only pre-work statuses (Backlog / Todo / not on
+        # board) adopt silently. Anything else — In Design, In Progress,
+        # In QA, Done, or a custom status — warns; the environment can still
+        # be set up on confirmation, but the status is KEPT.
+        s_backlog=$(sillok_config project.statuses.backlog)
+        s_todo=$(sillok_config project.statuses.todo)
+        if [[ -n "$a_status" && "$a_status" != "$s_backlog" && "$a_status" != "$s_todo" ]]; then
+          echo "- ADOPT-WARN: #$ADOPT_N is already '$a_status' — confirm with the user before setting up the environment (board status will be KEPT, not reset to Todo)"
+        else
+          echo "- ADOPT-OK: ready to adopt (board status will be set to Todo)"
+        fi
+      fi
     fi
   fi
 fi
 
-# Open epics (for parent suggestion)
-echo
-echo "### Open epics"
+# Open epics (for parent suggestion) — skipped in adopt mode: an adopted
+# issue keeps its own parent relationship, so the parent prompt never runs
+# and the 1-2 gh lookups here would be wasted.
+if [[ -z "$ADOPT_N" ]]; then
+  echo
+  echo "### Open epics"
 
-# Local-repo stories/epics (for parent suggestion).
-# orgMode=true: query by Issue Type. orgMode=false: query by label fallback.
-ORG_MODE=$(sillok_config orgMode)
-if [[ "$ORG_MODE" == "true" ]]; then
-  local_stories=$(gh api graphql -H "X-GitHub-Api-Version: 2026-03-10" \
-    -f query="{ repository(owner: \"${REPO%%/*}\", name: \"${REPO##*/}\") {
-      issues(first: 20, states: OPEN, filterBy: {issueType: \"Story\"}) {
-        nodes { number title }
-      }
-    } }" --jq '.data.repository.issues.nodes[]? | "  - (in this repo) #\(.number) [Story] \(.title)"' 2>/dev/null || echo "")
-else
-  # User repo: Issue Types unavailable. Fall back to label-based query.
-  local_stories=$(gh issue list --repo "$REPO" --label story --state open --limit 20 --json number,title \
-    --jq '.[]? | "  - (in this repo) #\(.number) [story] \(.title)"' 2>/dev/null || echo "")
-fi
-
-# Cross-repo PRD epics from prdRepo, if configured.
-PRD_REPO=$(sillok_config prdRepo)
-prd_epics=""
-if [[ -n "$PRD_REPO" ]]; then
+  # Local-repo stories/epics (for parent suggestion).
+  # orgMode=true: query by Issue Type. orgMode=false: query by label fallback.
+  ORG_MODE=$(sillok_config orgMode)
   if [[ "$ORG_MODE" == "true" ]]; then
-    prd_epics=$(gh api graphql -H "X-GitHub-Api-Version: 2026-03-10" \
-      -f query="{ repository(owner: \"${PRD_REPO%%/*}\", name: \"${PRD_REPO##*/}\") {
-        issues(first: 20, states: OPEN, filterBy: {issueType: \"Epic\"}) {
+    local_stories=$(gh api graphql -H "X-GitHub-Api-Version: 2026-03-10" \
+      -f query="{ repository(owner: \"${REPO%%/*}\", name: \"${REPO##*/}\") {
+        issues(first: 20, states: OPEN, filterBy: {issueType: \"Story\"}) {
           nodes { number title }
         }
-      } }" --jq ".data.repository.issues.nodes[]? | \"  - (in $PRD_REPO) #\(.number) [Epic] \(.title)\"" 2>/dev/null || echo "")
+      } }" --jq '.data.repository.issues.nodes[]? | "  - (in this repo) #\(.number) [Story] \(.title)"' 2>/dev/null || echo "")
   else
-    prd_epics=$(gh issue list --repo "$PRD_REPO" --label epic --state open --limit 20 --json number,title \
-      --jq ".[]? | \"  - (in $PRD_REPO) #\(.number) [epic] \(.title)\"" 2>/dev/null || echo "")
+    # User repo: Issue Types unavailable. Fall back to label-based query.
+    local_stories=$(gh issue list --repo "$REPO" --label story --state open --limit 20 --json number,title \
+      --jq '.[]? | "  - (in this repo) #\(.number) [story] \(.title)"' 2>/dev/null || echo "")
   fi
-fi
 
-if [[ -z "$local_stories" && -z "$prd_epics" ]]; then
-  echo "- (none — standalone unless --parent specified)"
-else
-  if [[ -n "$prd_epics" ]]; then
-    printf '%s\n' "$prd_epics"
+  # Cross-repo PRD epics from prdRepo, if configured.
+  PRD_REPO=$(sillok_config prdRepo)
+  prd_epics=""
+  if [[ -n "$PRD_REPO" ]]; then
+    if [[ "$ORG_MODE" == "true" ]]; then
+      prd_epics=$(gh api graphql -H "X-GitHub-Api-Version: 2026-03-10" \
+        -f query="{ repository(owner: \"${PRD_REPO%%/*}\", name: \"${PRD_REPO##*/}\") {
+          issues(first: 20, states: OPEN, filterBy: {issueType: \"Epic\"}) {
+            nodes { number title }
+          }
+        } }" --jq ".data.repository.issues.nodes[]? | \"  - (in $PRD_REPO) #\(.number) [Epic] \(.title)\"" 2>/dev/null || echo "")
+    else
+      prd_epics=$(gh issue list --repo "$PRD_REPO" --label epic --state open --limit 20 --json number,title \
+        --jq ".[]? | \"  - (in $PRD_REPO) #\(.number) [epic] \(.title)\"" 2>/dev/null || echo "")
+    fi
   fi
-  if [[ -n "$local_stories" ]]; then
-    printf '%s\n' "$local_stories"
+
+  if [[ -z "$local_stories" && -z "$prd_epics" ]]; then
+    echo "- (none — standalone unless --parent specified)"
+  else
+    if [[ -n "$prd_epics" ]]; then
+      printf '%s\n' "$prd_epics"
+    fi
+    if [[ -n "$local_stories" ]]; then
+      printf '%s\n' "$local_stories"
+    fi
   fi
 fi
 
