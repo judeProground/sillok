@@ -11,16 +11,16 @@ pass() { echo "  ok: $1"; }
 TMPDIR_PROJECT=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_PROJECT"' EXIT
 
-echo "test: writes five shim files into .claude/commands on fresh project"
+echo "test: writes six shim files into .claude/commands on fresh project"
 bash "$SCRIPT" "$TMPDIR_PROJECT" >/dev/null
-for cmd in start design execute end story; do
+for cmd in start design execute end story add; do
   dest="$TMPDIR_PROJECT/.claude/commands/sillok-$cmd.md"
   [[ -f "$dest" ]] || fail "expected $dest to exist"
 done
-pass "five shim files written"
+pass "six shim files written"
 
 echo "test: shim files contain the sillok-shim marker"
-for cmd in start design execute end story; do
+for cmd in start design execute end story add; do
   dest="$TMPDIR_PROJECT/.claude/commands/sillok-$cmd.md"
   grep -q '^sillok-shim: true$' "$dest" || fail "missing marker in $dest"
 done

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Lint: stage-skill SKILL.md frontmatter contract (story #15, sub-issue #56).
 #
-# Stage skills (start/design/execute/end/story/init) must:
+# Stage skills (start/add/design/execute/end/story/init) must:
 #   - exist (all six landed with story #15 — absence is a hard failure)
 #   - have `name:` matching their directory name
 #   - declare `user-invocable: false` (single auto-fire entry point — design decision 8)
@@ -28,9 +28,9 @@ description_of() {
 }
 
 checked=0
-for stage in start design execute end story init; do
+for stage in start add design execute end story init; do
   skill_md="$REPO_ROOT/skills/$stage/SKILL.md"
-  [[ -f "$skill_md" ]] || fail "skills/$stage/SKILL.md missing — all six stage skills must exist"
+  [[ -f "$skill_md" ]] || fail "skills/$stage/SKILL.md missing — all seven stage skills must exist"
   checked=$((checked + 1))
 
   fm=$(frontmatter "$skill_md")
