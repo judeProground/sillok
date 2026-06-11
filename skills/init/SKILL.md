@@ -1,6 +1,6 @@
 ---
 name: init
-description: Internal sillok stage skill — enter via the /sillok-init command only (init sits outside the workflow chain and is never routed by sillok:workflow). Bootstraps a project for sillok — detects repo, base branch, package manager, gitignored config files, and branch prefix automatically; asks at most two questions (project URL when no board is detected; auto-detected area labels when candidates found), and nothing under auto-mode. Idempotent.
+description: Internal sillok stage skill — enter via the /sillok-init command only (init sits outside the workflow chain and is never routed by sillok:workflow). Bootstraps a project for sillok — detects repo, base branch, package manager, gitignored config files, and branch prefix automatically; asks at most two questions per run (conditional: project URL when no board is detected; auto-detected area labels when candidates found; Priority-field option mapping only when an existing board field mismatches the config), and nothing under auto-mode. Idempotent.
 user-invocable: false
 ---
 
@@ -8,7 +8,7 @@ user-invocable: false
 
 You are running sillok `init` to bootstrap the current project for sillok.
 
-**Init takes no arguments and asks at most two questions** — a project URL (only when auto-detection yields nothing — see Step 2a-2) and the auto-detected area labels (Step 8b, interactive runs only). Under auto-mode it asks nothing. If detection of any field fails, the field is left empty in the generated config and a warning is printed; the user edits `.claude/sillok/workflow.config.json` afterward.
+**Init takes no arguments and asks at most two questions per run**, drawn from three conditional ones — a project URL (only when auto-detection yields nothing — see Step 2a-2), the auto-detected area labels (Step 8b, interactive runs only), and the Priority-field option mapping (Step 9c, org mode, ONLY when an existing board field's options genuinely mismatch the config — a fresh or matching board asks nothing). Under auto-mode it asks nothing. If detection of any field fails, the field is left empty in the generated config and a warning is printed; the user edits `.claude/sillok/workflow.config.json` afterward.
 
 **Auto-mode contract:** every step below MUST execute. Do not skip Step 7b (shim install) or Step 8b (area detection) even when invoked by an auto-mode agent. Step 7b is deterministic. Step 8b emits a deterministic tree (`project-tree.sh`), then classifies and confirms; under auto-mode the confirmation auto-accepts the classified list (written to the git-tracked config), so it never blocks. Both write only to plugin-managed paths and have idempotent safeguards documented in their own headers.
 
@@ -45,6 +45,7 @@ AREA_STATUS=fail
 LABELS_STATUS=fail
 TYPES_STATUS=fail
 PROJECT_STATUS=fail
+PRIORITY_STATUS=fail
 ORG_MODE=false
 ```
 
@@ -261,6 +262,13 @@ else
           "progress": "In Progress",
           "review": "In QA",
           "done": "Done"
+        },
+        "priorityField": "Priority",
+        "priorities": {
+          "p1": "Urgent",
+          "p2": "High",
+          "p3": "Medium",
+          "p4": "Low"
         }
       },
       "types": {
@@ -479,6 +487,94 @@ fi
 
 `PROJECT_STATUS` is initialized to `fail` in Step 1. Values: `ok` (project verified), `incomplete` (Status field missing options), `unconfigured` (project not yet set in config — informational, not a warning).
 
+## Step 9c: Priority field (org mode only — ensure + option mapping)
+
+On org repos, priority lives on the board's Priority single-select field (`project.priorityField`), not on `p1`–`p4` labels — the same native-primitive split as type→Issue Type and stage→Status. User repos keep the labels, so this whole step is skipped there.
+
+1. **Gate + read the board's options for the configured field:**
+
+   ```bash
+   if [[ "$ORG_MODE" != "true" ]]; then
+     PRIORITY_STATUS=skip-user-repo
+   elif [[ -z "$PROJ_OWNER" || "$PROJ_NUM" == "0" || "$PROJ_NUM" == "null" ]]; then
+     PRIORITY_STATUS=unconfigured
+   else
+     PRIORITY_FIELD=$(jq -r '.project.priorityField // "Priority"' "$CFG")
+     pri_fields_json=$(gh project field-list "$PROJ_NUM" --owner "$PROJ_OWNER" --format json 2>/dev/null || echo '{"fields":[]}')
+     pri_field_exists=$(echo "$pri_fields_json" | jq -r --arg f "$PRIORITY_FIELD" '[.fields[] | select(.name==$f)] | length')
+     pri_field_type=$(echo "$pri_fields_json" | jq -r --arg f "$PRIORITY_FIELD" '.fields[] | select(.name==$f) | .type // ""')
+     actual_pri_opts=$(echo "$pri_fields_json" | jq -r --arg f "$PRIORITY_FIELD" '.fields[] | select(.name==$f) | .options[]?.name')
+   fi
+   ```
+
+   When `PRIORITY_STATUS` was set to `skip-user-repo` or `unconfigured`, **Step 9c is done — skip steps 2–4.**
+
+2. **Field absent → auto-create, no question** (user-confirmed decision on #66; same resolution level as the Status detection in Step 9b, auto-accepted under auto-mode). `sillok_project_priority_field_ensure` creates the single-select via `createProjectV2Field` with options from `project.priorities` in p1→p4 order and prints one stderr notice:
+
+   ```bash
+   if [[ "$pri_field_exists" == "0" ]]; then
+     source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/project.sh"
+     if sillok_project_priority_field_ensure; then
+       PRIORITY_STATUS=created
+     else
+       PRIORITY_STATUS=fail
+     fi
+   fi
+   ```
+
+   When the field was absent, **Step 9c is done — skip steps 3–4.**
+
+3. **Field exists → verify it's actually a single-select with options, then compare against the config mapping.** A name match alone is not enough — a text/number field named "Priority", or a single-select with zero options, can never hold a priority (`gh project field-list` exposes `.type`; require `ProjectV2SingleSelectField`):
+
+   ```bash
+   if [[ "$pri_field_type" != "ProjectV2SingleSelectField" || -z "$actual_pri_opts" ]]; then
+     PRIORITY_STATUS=fail
+     echo "[sillok-init] field '$PRIORITY_FIELD' exists but is not a single-select (or has no options) — rename/delete it or point project.priorityField elsewhere"
+   fi
+   ```
+
+   When this gate fails, **Step 9c is done — skip step 4.** (`sillok_project_priority_field_ensure` itself stays a simple name check — this init gate is where field type and options are verified.)
+
+   Otherwise compare the board's options against the config mapping values. Zero non-empty mapped values is a `fail`, not `ok` — an all-empty mapping can never set any priority:
+
+   ```bash
+   pri_mismatch=0
+   pri_mapped=0
+   for key in p1 p2 p3 p4; do
+     want=$(jq -r ".project.priorities.$key // \"\"" "$CFG")
+     if [[ -n "$want" ]]; then
+       pri_mapped=$((pri_mapped + 1))
+       if ! echo "$actual_pri_opts" | grep -qxF "$want"; then
+         pri_mismatch=1
+       fi
+     fi
+   done
+   if [[ "$pri_mapped" == "0" ]]; then
+     PRIORITY_STATUS=fail
+     echo "[sillok-init] project.priorities maps no option names — fill in p1–p4 in workflow.config.json (the schema requires all four)"
+   elif [[ "$pri_mismatch" == "0" ]]; then
+     PRIORITY_STATUS=ok
+   fi
+   ```
+
+   All four mapped names present → `ok`; zero mapped names → `fail`; **in either case Step 9c is done — skip step 4.** On `ok` nothing is asked and nothing changes (idempotent re-init).
+
+4. **Genuine mismatch → propose the closest p1→p4 mapping (LLM judgment — you do this), confirm, persist.** Read `$actual_pri_opts` and map the board's options to sillok keys ordered most→least urgent (e.g. `P0/P1/P2` → p1=P0, p2=P1, p3=P2, p4=P2 — with fewer than four options the lowest keys share the least-urgent option; with more than four, pick the four clearest urgency levels).
+
+   - **Interactive:** present the proposed mapping and ask the user to confirm or edit it (via `AskUserQuestion`). This is the Priority-mapping question from the at-most-two budget — it fires ONLY on genuine mismatch. If two questions were already asked this run, do not ask a third: accept the proposal silently (it lands in the git-tracked config, freely editable afterward).
+   - **Auto-mode:** accept the proposed mapping without prompting.
+
+   Persist the confirmed mapping (board option names stay untouched — the config absorbs naming differences, mirroring the `statuses` mapping philosophy):
+
+   ```bash
+   tmp=$(mktemp)
+   jq --arg p1 "<p1-option>" --arg p2 "<p2-option>" --arg p3 "<p3-option>" --arg p4 "<p4-option>" \
+     '.project.priorities = { "p1": $p1, "p2": $p2, "p3": $p3, "p4": $p4 }' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+   PRIORITY_STATUS=mapped
+   ```
+
+`PRIORITY_STATUS` is one of: `ok`, `created`, `mapped`, `skip-user-repo`, `unconfigured`, `fail`. Only `fail` is a warning; `skip-user-repo` and `unconfigured` are informational.
+
 ## Step 10: Ensure spec/plan dirs + gitignore
 
 ```bash
@@ -512,13 +608,14 @@ Compute the headline status icon from sub-step outcomes:
 #   LABELS_STATUS   = ok | skipped-no-repo | fail  (Step 9)
 #   TYPES_STATUS    = ok | missing | skip-user-repo | fail   (Step 2b)
 #   PROJECT_STATUS  = ok | incomplete | unconfigured | fail   (Step 9b)
+#   PRIORITY_STATUS = ok | created | mapped | skip-user-repo | unconfigured | fail   (Step 9c)
 
 # Critical steps — must all succeed for ✅
 if [[ "$CONFIG_STATUS" == "fail" || "$RULES_STATUS" == "fail" || "$CLAUDE_MD_STATUS" == "fail" || "$LABELS_STATUS" == "fail" ]]; then
   HEADLINE="❌ sillok init FAILED"
 elif [[ "$TYPES_STATUS" == "missing" || "$PROJECT_STATUS" == "incomplete" ]]; then
   HEADLINE="⚠️  sillok initialized (with warnings — see below)"
-elif [[ "$SHIM_STATUS" == "fail" || "$AREA_STATUS" == "fail" ]]; then
+elif [[ "$SHIM_STATUS" == "fail" || "$AREA_STATUS" == "fail" || "$PRIORITY_STATUS" == "fail" ]]; then
   HEADLINE="⚠️  sillok initialized (with warnings — see below)"
 else
   HEADLINE="✅ sillok initialized"
@@ -546,6 +643,8 @@ Created:
 - Org Issue Types (Epic/Story/Feature/Task/Bug)        [<TYPES_STATUS>]
   - `skip-user-repo` → "📋 User-owned repo — Issue Types skipped (using label fallback)."
 - Project + Status options                             [<PROJECT_STATUS>]
+- Priority field on the board (org mode)               [<PRIORITY_STATUS>]
+  - `skip-user-repo` → "📋 User-owned repo — board Priority field skipped (p1–p4 labels are the priority record)."
 ```
 
 **Area-label sub-summary** (always printed when relevant):
@@ -589,6 +688,7 @@ Re-running `/sillok-init` must:
 - Skip label creation for labels that already exist (handled by `bootstrap-labels.sh` with `|| true`)
 - Deep-merge `workflow.config.json` on re-run: add missing template keys, preserve existing user values, keep arrays verbatim
 - Preserve existing `labels.areas` array: if non-empty in the existing config, Step 8b reports `skip-preserved` and does NOT overwrite (user's curation wins over auto-pick)
+- Priority field steady state asks nothing and changes nothing: when the board field exists and every `project.priorities` value matches an option, Step 9c reports `ok` without prompting or writing (a once-confirmed `mapped` config matches on every later run)
 
 ## Integration
 

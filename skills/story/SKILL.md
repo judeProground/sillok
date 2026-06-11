@@ -83,7 +83,6 @@ Used when the user is on `main`, an unrelated branch, or a fresh worktree.
      -f body="<body>" \
      -f type="Story" \
      -f "assignees[]=$(gh api user --jq .login)" \
-     -f "labels[]=p3" \
      --jq '.html_url')
    ```
 
@@ -101,7 +100,7 @@ Used when the user is on `main`, an unrelated branch, or a fresh worktree.
      --jq '.html_url')
    ```
 
-   (Difference: org mode has `-f type=Story`, user mode has `-f labels[]=story` instead.)
+   (Differences: org mode has `-f type=Story` and NO priority label — priority is set on the board's Priority field in step 10; user mode has `-f labels[]=story` and the default `p3` priority label instead.)
 
    Capture `<N>` from the URL (`${issue_url##*/}`).
 
@@ -151,7 +150,17 @@ Used when the user is on `main`, an unrelated branch, or a fresh worktree.
     source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/project.sh"
     ITEM_ID=$(sillok_project_item_add "$issue_url")
     sillok_project_status_set "$ITEM_ID" todo
+
+    # Org mode only: priority lives on the board's Priority field (no p-label
+    # was applied in step 4); default key from labels.defaults.priority.
+    # User mode keeps the p3 label from step 4 instead.
+    if [[ "$(sillok_config orgMode)" == "true" ]]; then
+      sillok_project_priority_set "$ITEM_ID" "$(sillok_config labels.defaults.priority)" \
+        || echo "[sillok] priority not set — re-run /sillok-init to create/map the board's Priority field" >&2
+    fi
     ```
+
+    Priority failure is NON-FATAL: the story issue, branch, and worktree exist either way — surface the warning and continue (a board initialized before the org-mode priority split has no Priority field until `/sillok-init` is re-run).
 
 11. Print summary:
 

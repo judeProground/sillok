@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # sillok — Projects v2 helpers.
-# Wraps GraphQL mutations for project item add + status field update.
-# Status writes are idempotent at the GitHub level (re-setting same value = no-op).
+# Wraps GraphQL mutations for project item add + status/priority field updates.
+# Field writes are idempotent at the GitHub level (re-setting same value = no-op).
 set -euo pipefail
 
 # Resolve this file's directory under bash AND zsh (nounset-safe), so the
@@ -109,9 +109,14 @@ sillok_project_item_add() {
 sillok_project_field_id() {
   local name="$1"
 
+  # Cache line format: <name>:<id>| — `|` is the line separator, so field
+  # names containing it are unsupported. `:` IS allowed in names ("Sev: ops"):
+  # ids never contain `:`, so match the line prefix up to the LAST colon —
+  # a first-colon split (awk -F:) would truncate the name at its own colon
+  # and never match (the ensure path would then create a duplicate field).
   if [[ -n "$_SILLOK_FIELD_ID_CACHE" ]]; then
     local cached
-    cached=$(printf '%s' "$_SILLOK_FIELD_ID_CACHE" | tr '|' '\n' | awk -F: -v n="$name" '$1 == n { print $2; exit }')
+    cached=$(printf '%s' "$_SILLOK_FIELD_ID_CACHE" | tr '|' '\n' | awk -v n="$name" 'match($0, /:[^:]*$/) && substr($0, 1, RSTART - 1) == n { print substr($0, RSTART + 1); exit }')
     if [[ -n "$cached" ]]; then
       printf '%s' "$cached"
       return 0
@@ -132,7 +137,7 @@ sillok_project_field_id() {
 
   _SILLOK_FIELD_ID_CACHE=$(printf '%s' "$fields_json" | tr '\n' '|')
 
-  printf '%s' "$_SILLOK_FIELD_ID_CACHE" | tr '|' '\n' | awk -F: -v n="$name" '$1 == n { print $2; exit }'
+  printf '%s' "$_SILLOK_FIELD_ID_CACHE" | tr '|' '\n' | awk -v n="$name" 'match($0, /:[^:]*$/) && substr($0, 1, RSTART - 1) == n { print substr($0, RSTART + 1); exit }'
 }
 
 # Get the option ID for a named status option. Cached per field+option key.
@@ -171,10 +176,15 @@ sillok_project_option_id() {
   # Append to cache. Declare ONCE above the loop: zsh prints `name=value` to
   # stdout when an existing variable is re-declared with local/typeset and no
   # assignment, so an in-loop declaration leaks from iteration 2 onward (#65).
+  #
+  # Cache line format: <field>::<name>#<id>| — `#` and `|` are separators, so
+  # option names containing them are unsupported. `:` IS allowed in names
+  # ("P1: urgent"): each line is "<name>:<id>" and ids never contain `:`, so
+  # split on the LAST colon (%:* / ##*:), never the first.
   local opt_name opt_id
   while IFS= read -r line; do
     opt_name="${line%:*}"
-    opt_id="${line#*:}"
+    opt_id="${line##*:}"
     _SILLOK_OPTION_ID_CACHE="${_SILLOK_OPTION_ID_CACHE}${field_name}::${opt_name}#${opt_id}|"
   done <<< "$options_json"
 
@@ -197,27 +207,29 @@ sillok_project_status_get() {
   }" --jq '.data.node.fieldValueByName.name // empty'
 }
 
-# Set status for a project item.
-# Usage: sillok_project_status_set <item-id> <status-key>
-#   status-key: one of backlog, todo, design, progress, review, done
-sillok_project_status_set() {
+# Shared core for single-select field writes (status + priority — they began
+# as byte-copies and had already drifted). Carries: the #47 empty-item_id
+# early guard, the project/field/option resolvers, the option-not-found
+# guard, the combined -z check, the malformed-id tripwire, and the mutation.
+# The public wrappers below map their config keys to <field-name> /
+# <option-name> and delegate here.
+# Usage: _sillok_project_single_select_set <item-id> <field-name> <option-name> <kind> [field-missing-msg]
+#   kind: short noun for error messages ("status" / "priority").
+#   field-missing-msg: optional remediation hint printed when the field itself
+#   cannot be resolved (empty field_id on a resolvable project); when absent,
+#   the generic could-not-resolve line is printed instead.
+_sillok_project_single_select_set() {
   local item_id="$1"
-  local status_key="$2"
+  local field_name="$2"
+  local option_name="$3"
+  local kind="$4"
+  local field_missing_msg="${5-}"
 
-  # Early guard: an empty item id can never succeed, so refuse before the
+  # Early guard (#47): an empty item id can never succeed, so refuse before the
   # resolvers below spend gh round-trips. The combined -z check further down
   # still covers resolver failures (empty project/field/option ids).
   if [[ -z "$item_id" ]]; then
     echo "[sillok] empty project item id — issue not on the project board?" >&2
-    return 1
-  fi
-
-  local field_name option_name
-  field_name=$(sillok_config project.statusField)
-  option_name=$(sillok_config "project.statuses.$status_key")
-
-  if [[ -z "$option_name" ]]; then
-    echo "[sillok] no project.statuses.$status_key configured" >&2
     return 1
   fi
 
@@ -227,20 +239,23 @@ sillok_project_status_set() {
   option_id=$(sillok_project_option_id "$field_name" "$option_name")
 
   if [[ -z "$item_id" || -z "$project_id" || -z "$field_id" || -z "$option_id" ]]; then
-    if [[ -n "$project_id" && -n "$field_id" && -z "$option_id" ]]; then
+    if [[ -n "$project_id" && -z "$field_id" && -n "$field_missing_msg" ]]; then
+      # The board resolved but the field itself doesn't exist on it.
+      echo "$field_missing_msg" >&2
+    elif [[ -n "$project_id" && -n "$field_id" && -z "$option_id" ]]; then
       # Everything resolved except the option: the board simply lacks it.
-      echo "[sillok] status option '$option_name' not found on the board's '$field_name' field — add it in the project's field settings (Settings → Fields → $field_name)" >&2
+      echo "[sillok] $kind option '$option_name' not found on the board's '$field_name' field — add it in the project's field settings (Settings → Fields → $field_name)" >&2
     else
       echo "[sillok] could not resolve item_id=$item_id project_id=$project_id field_id=$field_id option_id=$option_id" >&2
     fi
     return 1
   fi
 
-  # Tripwire: a resolver that leaks debug text to stdout (or a caller passing
-  # a contaminated item_id captured the same way) would pollute these ids and
-  # produce a malformed mutation (GraphQL "Expected string"). Refuse loudly
-  # instead of sending garbage. Ids are base64ish node ids / hex option ids —
-  # never contain whitespace or shell-noise characters.
+  # Tripwire (#47): a resolver that leaks debug text to stdout (or a caller
+  # passing a contaminated item_id captured the same way) would pollute these
+  # ids and produce a malformed mutation (GraphQL "Expected string"). Refuse
+  # loudly instead of sending garbage. Ids are base64ish node ids / hex option
+  # ids — never contain whitespace or shell-noise characters.
   local _id
   for _id in "$item_id" "$project_id" "$field_id" "$option_id"; do
     case "$_id" in
@@ -258,4 +273,109 @@ sillok_project_status_set() {
       value: { singleSelectOptionId: \"$option_id\" }
     }) { projectV2Item { id } }
   }" --jq '.data.updateProjectV2ItemFieldValue.projectV2Item.id' >/dev/null
+}
+
+# Set status for a project item.
+# Usage: sillok_project_status_set <item-id> <status-key>
+#   status-key: one of backlog, todo, design, progress, review, done
+sillok_project_status_set() {
+  local item_id="$1"
+  local status_key="$2"
+
+  local field_name option_name
+  field_name=$(sillok_config project.statusField)
+  option_name=$(sillok_config "project.statuses.$status_key")
+
+  if [[ -z "$option_name" ]]; then
+    echo "[sillok] no project.statuses.$status_key configured" >&2
+    return 1
+  fi
+
+  _sillok_project_single_select_set "$item_id" "$field_name" "$option_name" status
+}
+
+# Set priority for a project item (org mode — user repos keep p1–p4 labels).
+# Usage: sillok_project_priority_set <item-id> <priority-key>
+#   priority-key: one of p1, p2, p3, p4 — mapped to the board's option name
+#   via project.priorities.<key>; the field name comes from project.priorityField.
+sillok_project_priority_set() {
+  local item_id="$1"
+  local priority_key="$2"
+
+  local field_name option_name
+  field_name=$(sillok_config project.priorityField)
+  option_name=$(sillok_config "project.priorities.$priority_key")
+
+  if [[ -z "$option_name" ]]; then
+    echo "[sillok] no project.priorities.$priority_key configured" >&2
+    return 1
+  fi
+
+  # The field-missing hint covers the v2.x → priority-field upgrade path:
+  # boards initialized before #66 have no Priority field until re-init.
+  _sillok_project_single_select_set "$item_id" "$field_name" "$option_name" priority \
+    "[sillok] Priority field '$field_name' not found on the project board — re-run /sillok-init to create it (org-mode priority moved off p-labels)"
+}
+
+# Ensure the configured Priority single-select field exists on the board.
+# Present → return 0 silently. Absent → create it via createProjectV2Field
+# with options built from project.priorities in p1→p4 order (one stderr
+# notice). Returns non-zero only when creation fails (or config is unusable).
+sillok_project_priority_field_ensure() {
+  local field_name
+  field_name=$(sillok_config project.priorityField)
+  if [[ -z "$field_name" ]]; then
+    echo "[sillok] no project.priorityField configured" >&2
+    return 1
+  fi
+
+  local field_id
+  field_id=$(sillok_project_field_id "$field_name") || return 1
+  if [[ -n "$field_id" ]]; then
+    return 0
+  fi
+
+  local project_id
+  project_id=$(sillok_project_id) || return 1
+
+  # Build singleSelectOptions in p1→p4 order. The GraphQL input type
+  # (ProjectV2SingleSelectFieldOptionInput) requires name, color AND
+  # description per option — description is String! but may be empty.
+  # Locals declared ONCE above the loop (#65).
+  local options="" key option_name color
+  for key in p1 p2 p3 p4; do
+    option_name=$(sillok_config "project.priorities.$key")
+    if [[ -n "$option_name" ]]; then
+      case "$key" in
+        p1) color=RED ;;
+        p2) color=ORANGE ;;
+        p3) color=YELLOW ;;
+        *)  color=GRAY ;;
+      esac
+      options="${options:+$options, }{name: \"$option_name\", color: $color, description: \"\"}"
+    fi
+  done
+
+  if [[ -z "$options" ]]; then
+    echo "[sillok] project.priorities has no option names configured — cannot create field '$field_name'" >&2
+    return 1
+  fi
+
+  echo "[sillok] creating single-select field '$field_name' on the project board (options from project.priorities, p1→p4)" >&2
+  gh api graphql -f query="mutation {
+    createProjectV2Field(input: {
+      projectId: \"$project_id\",
+      dataType: SINGLE_SELECT,
+      name: \"$field_name\",
+      singleSelectOptions: [$options]
+    }) { projectV2Field { ... on ProjectV2SingleSelectField { id } } }
+  }" --jq '.data.createProjectV2Field.projectV2Field.id' >/dev/null || return 1
+
+  # Defensive reset for hypothetical future same-shell callers. Today the
+  # field_id lookup above ran in a command-substitution subshell, so its cache
+  # write died with that subshell — this parent shell's cache is still empty
+  # and the reset is a no-op. It only matters if a future caller resolves
+  # field ids in this shell directly and would otherwise read a list cached
+  # before the field was created.
+  _SILLOK_FIELD_ID_CACHE=""
 }

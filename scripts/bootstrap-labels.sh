@@ -4,13 +4,15 @@
 #
 # usage: bootstrap-labels.sh <owner>/<name> [--config <path>]
 #
-# Without --config: creates the 10 universal labels (6 natures + 4 priorities).
+# Without --config: creates the 6 nature labels, plus 4 priority labels and
+# 4 type labels on user-mode repos (orgMode=false).
 # With --config: additionally reads labels.areas from the given workflow.config.json
 # and creates one area:<name> label per entry (color c9d4dd, muted blue-gray).
 #
-# Note: categorical types (feature/bug/epic) are managed via GitHub Issue Types now (see
-# scripts/issue-types.sh), and stages (backlog/todo/.../in-review) are managed via GitHub
-# Projects Status (see scripts/project.sh). Neither is a label class anymore.
+# Note: on org repos, categorical types (feature/bug/epic) are managed via GitHub Issue
+# Types (see scripts/lib/issue-types.sh), stages (todo/.../in-review) via the Projects v2
+# Status field, and priorities (p1–p4) via the Projects v2 Priority field (see
+# scripts/lib/project.sh). None of these is a label class in org mode.
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
@@ -40,6 +42,11 @@ create() {
   fi
 }
 
+SCRIPT_DIR_BL=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+source "$SCRIPT_DIR_BL/lib/config.sh" 2>/dev/null || true
+ORG_MODE=$(sillok_config orgMode 2>/dev/null || echo "false")
+
 echo "Bootstrapping labels on $REPO..."
 
 # Natures — cross-cutting attributes orthogonal to Issue Type
@@ -50,17 +57,18 @@ create docs         0e8a16 "Documentation only"
 create security     0e8a16 "Security-relevant change or finding"
 create performance  0e8a16 "Performance-relevant change"
 
-# Priorities
-create p1           FD3D00 "Urgent"
-create p2           FF8800 "High"
-create p3           CBCCD4 "Normal (default)"
-create p4           E6E6EB "Low"
+# Priority labels — only for user-mode repos (org repos track priority on the
+# Projects v2 Priority field instead — see lib/project.sh, #66)
+if [[ "$ORG_MODE" != "true" ]]; then
+  create p1           FD3D00 "Urgent"
+  create p2           FF8800 "High"
+  create p3           CBCCD4 "Normal (default)"
+  create p4           E6E6EB "Low"
+else
+  echo "  · p1–p4 skipped (org mode — priority lives on the project board)"
+fi
 
 # Type labels — only for user-mode repos (org repos use Issue Types instead)
-SCRIPT_DIR_BL=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-# shellcheck source=lib/config.sh
-source "$SCRIPT_DIR_BL/lib/config.sh" 2>/dev/null || true
-ORG_MODE=$(sillok_config orgMode 2>/dev/null || echo "false")
 if [[ "$ORG_MODE" != "true" ]]; then
   echo "  Type labels (user-repo fallback)..."
   create feature  0e8a16 "New user-facing functionality"
