@@ -14,7 +14,7 @@ The brainstorming output is stored as `$architecture_content` (Architecture pros
 
 ## After brainstorming
 
-Continue with SKILL.md Step 6 (review loop), Step 7 (set project status to In Design), and Step 7.5 (extract key decisions). Skip the spec-file write in Step 5. Then perform the story-body update below instead of SKILL.md Step 8.
+Continue with SKILL.md Step 6 (single review gate: architecture content + key decisions together, one confirmation) and Step 7 (set project status to In Design). Skip the spec-file write in Step 5. Then perform the story-body update below instead of SKILL.md Step 8.
 
 ## Update story body
 

@@ -34,7 +34,7 @@ Read the markdown block. Show it back to the user as the current state summary.
     [list open sub-issues via gh api graphql subIssues, or "none yet"]
     ```
 
-    - **(a)** → **Story-design mode** — first apply the `## Language` rules and the Step 2 pre-condition gate below, then read and follow `${CLAUDE_PLUGIN_ROOT}/skills/design/story-mode.md` (architecture + decomposition brainstorming seed, story-body update, output). No spec file is created. It routes back through Steps 6, 7, and 7.5 below, then the story-design branches of Steps 8 and 9.
+    - **(a)** → **Story-design mode** — first apply the `## Language` rules and the Step 2 pre-condition gate below, then read and follow `${CLAUDE_PLUGIN_ROOT}/skills/design/story-mode.md` (architecture + decomposition brainstorming seed, story-body update, output). No spec file is created. It routes back through Steps 6 and 7 below, then the story-design branches of Steps 8 and 9.
     - **(b)** → fetch the chosen sub-issue's metadata, derive its slug (`bash ${CLAUDE_PLUGIN_ROOT}/scripts/slug-from-title.sh <sub-N> "<sub-title>"`), and proceed as ordinary single-issue mode against that sub-issue.
 
   - Otherwise (Feature / Task / Bug): continue to step 2 as ordinary single-issue mode.
@@ -54,6 +54,23 @@ Read the `### Language` section from the precompute output (step 1).
 - `en` → write all generated content in English.
 
 Section headers (`## Summary`, `## Design`, `Parent:` etc.) and GitHub API field names stay in English regardless of language setting — only prose content follows the language preference.
+
+### Korean prose style
+
+When the resolved language is Korean, generated prose (spec, key decisions, summaries) follows this style contract:
+
+- Write complete sentences with explicit subjects and conjugated endings (~한다/~했다) — NOT 개조식 noun-ending fragments ("기각", "필요해짐", "벗어남"). Those read like compressed logs, not explanations.
+- Never calque English idioms word-for-word — describe the behavior instead ("graceful degradation" → "실패해도 빈 목록으로 조용히 동작한다", not "우아한 성능 저하").
+- Wrap code/API tokens in backticks so Korean particles don't collide with them (`first: 20` 페이지에서 — not "first: 20 페이지에서").
+- Key-decision bullets read as full sentences in 결정 → 이유 → 기각한 대안 order.
+
+BAD (real sample):
+
+> Search API(type: qualifier)로 교체, 클라이언트 측 필터링 기각 — 클라이언트 필터링은 first: 20 페이지에 Story/Epic이 없으면 누락되어 페이지네이션이 필요해짐. 단순 버그픽스 범위를 벗어남.
+
+GOOD:
+
+> Story/Epic 조회를 Search API의 `type:` qualifier 기반으로 교체했다. 클라이언트 측 필터링은 첫 `first: 20` 페이지에 Story/Epic이 없으면 결과가 누락되어 페이지네이션이 필요해지는데, 그건 단순 버그픽스의 범위를 벗어나므로 기각했다.
 
 ## Step 2: Pre-condition
 
@@ -101,7 +118,7 @@ The brainstorming skill drives the discussion. Follow its instructions.
 
 When this stage is invoked via `sillok:workflow` in full-auto mode (`automation.fullAuto: true`), do not seed brainstorming for interactive questioning. Instead, seed `superpowers:brainstorming` with: "decide judgment calls yourself and record EVERY decision in the issue's `## Key decisions` section". The spec pasted into the issue body (Step 8) remains the canonical record.
 
-The downstream confirmation gates are also covered: Step 6 (spec review loop), Step 7 (In Design only after confirmation), and Step 7.5 (key-decisions loop) are treated as Claude-confirmed under full-auto — the user confirmations are replaced by recording every decision into the issue's `## Key decisions` section, and the Step 7 status set proceeds without waiting.
+The downstream confirmation gate is also covered: the Step 6 review gate (spec + key decisions, one combined confirmation) is treated as Claude-confirmed under full-auto — the user confirmation is replaced by recording every decision into the issue's `## Key decisions` section, and the Step 7 status set proceeds without waiting.
 
 ## Step 5: Save spec
 
@@ -109,37 +126,9 @@ When brainstorming concludes (the skill produces a coherent spec draft), write t
 
 **Story-design mode skips this step** — no spec file. The brainstorming output lives only in the story body (see `story-mode.md`).
 
-## Step 6: Review loop
+## Step 6: Review gate — spec + key decisions, one confirmation
 
-Print: "Spec written to `<path>`. Review and tell me corrections, or say `looks good` / `lock` / `ship` to confirm."
-
-Iterate:
-
-- Apply user's corrections to the spec file (Edit tool, surgical).
-- Re-print path after each correction round.
-- Continue until user explicitly confirms.
-
-The project status update in step 7 ONLY happens after explicit confirmation. Confirmation is required because the spec may still be wrong; the status change marks "I've seen and accepted this".
-
-## Step 7: Set project status to In Design
-
-After explicit user confirmation in step 6:
-
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/project.sh"
-ITEM_ID=$(sillok_project_item_for_issue "https://github.com/$REPO/issues/$N")
-if [[ -z "$ITEM_ID" ]]; then
-  # Edge case: auto-add didn't fire and start didn't add. Recover.
-  ITEM_ID=$(sillok_project_item_add "https://github.com/$REPO/issues/$N")
-fi
-sillok_project_status_set "$ITEM_ID" design
-```
-
-Stage is managed via the project's Status field — no label flipping.
-
-## Step 7.5: Extract key decisions
-
-After the spec is confirmed (step 6) and project status is set (step 7), extract key decisions from the brainstorming conversation and the spec content before updating the issue body.
+First, distill the key decisions from the brainstorming conversation and the spec content.
 
 A "key decision" is a choice where:
 - 2+ viable options existed
@@ -160,12 +149,37 @@ Rules:
 3. Each bullet must be self-contained — readable without the full spec.
 4. Prefer fewer strong bullets over many weak ones. 2 strong > 5 weak.
 5. Implementation details are not decisions. "Used jq" is not a decision. "Labels instead of Issue Types for user repos — because the API silently fails" is a decision.
+6. Follow the `## Language` rules — for Korean output the Korean prose style contract applies.
 
-Present to the user separately from the spec review:
+Then present spec and key decisions together — ONE message, ONE gate:
 
-"Key decisions for the issue body — edit or confirm:"
+"Spec written to `<path>`. Key decisions distilled below — review both and tell me corrections, or say `looks good` / `lock` / `ship` to confirm.
 
-Iterate until user confirms. Store as `$key_decisions` for step 8.
+<key-decision bullets>"
+
+Iterate:
+
+- Apply user's corrections to the spec file (Edit tool, surgical) and/or to the key-decision bullets.
+- Re-print the path (and any changed bullets) after each correction round.
+- Continue until user explicitly confirms.
+
+This is the design stage's SINGLE user gate — there is no separate key-decisions confirmation afterwards. Store the confirmed bullets as `$key_decisions` for step 8. The project status update in step 7 ONLY happens after explicit confirmation. Confirmation is required because the spec may still be wrong; the status change marks "I've seen and accepted this".
+
+## Step 7: Set project status to In Design
+
+After explicit user confirmation in step 6:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/project.sh"
+ITEM_ID=$(sillok_project_item_for_issue "https://github.com/$REPO/issues/$N")
+if [[ -z "$ITEM_ID" ]]; then
+  # Edge case: auto-add didn't fire and start didn't add. Recover.
+  ITEM_ID=$(sillok_project_item_add "https://github.com/$REPO/issues/$N")
+fi
+sillok_project_status_set "$ITEM_ID" design
+```
+
+Stage is managed via the project's Status field — no label flipping.
 
 ## Step 8: Update issue body — paste spec inline
 
@@ -177,7 +191,7 @@ Read the locked spec file:
 spec_content=$(cat <SPEC_DIR>/<date>-<slug>.md)
 ```
 
-Reconstruct the issue body in the conventional section order (per `gh-issue-conventions.md`: Parent → Summary → **Key decisions** → PRD link → **Design (inline content)** → Plan link → PR link → Done note). Preserve the existing Parent / Summary / PRD link sections from the body fetched in step 1; insert `## Key decisions` from step 7.5; replace or insert the `## Design` section with the full spec content.
+Reconstruct the issue body in the conventional section order (per `gh-issue-conventions.md`: Parent → Summary → **Key decisions** → PRD link → **Design (inline content)** → Plan link → PR link → Done note). Preserve the existing Parent / Summary / PRD link sections from the body fetched in step 1; insert `## Key decisions` confirmed in step 6; replace or insert the `## Design` section with the full spec content.
 
 Post the new body via stdin (`-F -`) to avoid quoting headaches with backticks, dollar signs, and code blocks inside the spec:
 
@@ -202,6 +216,8 @@ $key_decisions
 $spec_content
 EOF
 ```
+
+After posting, state once (informational — a statement, not a prompt; do NOT wait for a reply): "Key decisions recorded in the issue body — say so if anything needs correcting."
 
 Drift policy: if the spec file and issue body diverge later, the file wins — re-run this step to re-paste. Don't hand-edit the GH issue body for design content.
 
