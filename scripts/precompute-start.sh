@@ -159,12 +159,15 @@ if [[ -z "$ADOPT_N" ]]; then
   # orgMode=true: query by Issue Type. orgMode=false: query by label fallback.
   ORG_MODE=$(sillok_config orgMode)
   if [[ "$ORG_MODE" == "true" ]]; then
-    local_stories=$(gh api graphql -H "X-GitHub-Api-Version: 2026-03-10" \
-      -f query="{ repository(owner: \"${REPO%%/*}\", name: \"${REPO##*/}\") {
-        issues(first: 20, states: OPEN, filterBy: {issueType: \"Story\"}) {
-          nodes { number title }
-        }
-      } }" --jq '.data.repository.issues.nodes[]? | "  - (in this repo) #\(.number) [Story] \(.title)"' 2>/dev/null || echo "")
+    # IssueFilters has no issueType argument (#41) — the Search API's type:
+    # qualifier is the supported server-side filter for Issue Types.
+    local_stories=$(gh api graphql \
+      -f query="{ search(query: \"repo:$REPO is:issue is:open type:Story\", type: ISSUE, first: 20) {
+        nodes { ... on Issue { number title } }
+      } }" --jq '.data.search.nodes[]? | "  - (in this repo) #\(.number) [Story] \(.title)"' 2>/dev/null) || {
+      echo "[precompute-start] open-epics query failed (type:Story, repo $REPO) — continuing with empty list" >&2
+      local_stories=""
+    }
   else
     # User repo: Issue Types unavailable. Fall back to label-based query.
     local_stories=$(gh issue list --repo "$REPO" --label story --state open --limit 20 --json number,title \
@@ -176,12 +179,13 @@ if [[ -z "$ADOPT_N" ]]; then
   prd_epics=""
   if [[ -n "$PRD_REPO" ]]; then
     if [[ "$ORG_MODE" == "true" ]]; then
-      prd_epics=$(gh api graphql -H "X-GitHub-Api-Version: 2026-03-10" \
-        -f query="{ repository(owner: \"${PRD_REPO%%/*}\", name: \"${PRD_REPO##*/}\") {
-          issues(first: 20, states: OPEN, filterBy: {issueType: \"Epic\"}) {
-            nodes { number title }
-          }
-        } }" --jq ".data.repository.issues.nodes[]? | \"  - (in $PRD_REPO) #\(.number) [Epic] \(.title)\"" 2>/dev/null || echo "")
+      prd_epics=$(gh api graphql \
+        -f query="{ search(query: \"repo:$PRD_REPO is:issue is:open type:Epic\", type: ISSUE, first: 20) {
+          nodes { ... on Issue { number title } }
+        } }" --jq ".data.search.nodes[]? | \"  - (in $PRD_REPO) #\(.number) [Epic] \(.title)\"" 2>/dev/null) || {
+        echo "[precompute-start] open-epics query failed (type:Epic, repo $PRD_REPO) — continuing with empty list" >&2
+        prd_epics=""
+      }
     else
       prd_epics=$(gh issue list --repo "$PRD_REPO" --label epic --state open --limit 20 --json number,title \
         --jq ".[]? | \"  - (in $PRD_REPO) #\(.number) [epic] \(.title)\"" 2>/dev/null || echo "")

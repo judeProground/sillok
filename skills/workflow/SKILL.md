@@ -116,7 +116,7 @@ At chain ENTRY and at EVERY stage boundary, propose the next stage in one line a
 ONLY when this skill invoked the stage as part of a confirmed full-auto chain — never in propose mode, regardless of what the config says — the stage's INTERNAL confirmation gates are auto-resolved by Claude and recorded; they must not stall the chain:
 
 - **start** — accept the proposed issue title/type/labels (issue-settings confirm loop); accept the derived branch name; answer the epic-fit question `standalone` unless `--parent` was given; auto-create the missing sprint milestone.
-- **design** — the spec review loop and the Key-decisions loop are treated as Claude-confirmed; every such decision is recorded in the issue's `## Key decisions` per the decide+record rule above, and the In Design status set proceeds.
+- **design** — the single review gate (spec + key decisions, one combined confirmation) is treated as Claude-confirmed; every such decision is recorded in the issue's `## Key decisions` per the decide+record rule above, and the In Design status set proceeds.
 - **end** — the dirty-tree and existing-PR prompts are NOT auto-resolved. They map to failure demotion: stop the chain, report the state, and demote to propose mode.
 
 Auto-resolution applies to confirmation gates only — verify-gate is never skipped.

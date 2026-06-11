@@ -23,7 +23,11 @@ bash tests/project-tree.test.sh
 
 # Smoke-test a script end-to-end against a temp project (most tests do this internally)
 # CLAUDE_PLUGIN_ROOT is optional since 2.4.1 (config.sh derives the plugin root
-# from its own file location); exporting it is still the convention for tests:
+# from its own file location). The export below is a convention INSIDE
+# tests/*.test.sh files only — during skill execution it is never needed:
+# SKILL.md bodies get ${CLAUDE_PLUGIN_ROOT} substituted at load time, and all
+# scripts self-derive their root. Do NOT cargo-cult this export into ad-hoc
+# Bash calls.
 export CLAUDE_PLUGIN_ROOT=$(pwd)
 bash scripts/precompute-start.sh
 ```

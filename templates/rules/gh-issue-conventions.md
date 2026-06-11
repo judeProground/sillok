@@ -138,7 +138,7 @@ Parent: #<M>            <!-- omit line if standalone -->
 
 <1–2 sentences describing intent>
 
-## Key decisions            <!-- filled by /sillok-design step 7.5; always present, may be empty -->
+## Key decisions            <!-- composed at /sillok-design's review gate (step 6), recorded in step 8; always present, may be empty -->
 
 - **<decision>** — <reason>
 
