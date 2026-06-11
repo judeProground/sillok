@@ -76,5 +76,41 @@ for sh in "${SHELLS[@]}"; do
   pass "$sh: malformed URL rejected by parse guard"
 done
 
+# Option-cache loop must keep its stdout clean across MULTIPLE options (#65).
+# zsh prints `name=value` when an existing variable is re-declared with
+# local/typeset and no assignment, so a `local` declaration INSIDE the cache
+# loop leaks `opt_name=...`/`opt_id=...` into the function's stdout from
+# iteration 2 onward, corrupting command-substitution callers. Hermetic: gh is
+# stubbed (no network), config lives in a throwaway git project.
+STUB_BIN="$WORKDIR/stub-bin"
+mkdir -p "$STUB_BIN"
+cat > "$STUB_BIN/gh" <<'STUB'
+#!/bin/sh
+case "$1" in
+  project) printf 'PVT_kwDOTEST001\n' ;;
+  api)     printf 'Todo:aaa1\nIn Progress:1bb1\nDone:ccc1\n' ;;
+  *)       exit 1 ;;
+esac
+STUB
+chmod +x "$STUB_BIN/gh"
+
+PROJ_DIR="$WORKDIR/proj65"
+mkdir -p "$PROJ_DIR/.claude/sillok"
+git init -q "$PROJ_DIR"
+cat > "$PROJ_DIR/.claude/sillok/workflow.config.json" <<'CFG'
+{ "version": 1, "repo": "test/test", "baseBranch": "main", "branchPrefix": "{type}/issue-", "project": { "owner": "testorg", "number": 7 } }
+CFG
+
+for sh in "${SHELLS[@]}"; do
+  snippet="export PATH='$STUB_BIN':\$PATH; cd '$PROJ_DIR'"
+  snippet+="; source '$REPO_ROOT/scripts/lib/project.sh'"
+  snippet+="; out=\$(sillok_project_option_id 'Status' 'In Progress')"
+  snippet+="; [ \"\$out\" = '1bb1' ] || { echo \"polluted output: [\$out]\" >&2; exit 1; }"
+  if ! run_in "$sh" "$snippet" 2>"$STDERR_FILE"; then
+    fail "$sh: option-cache loop polluted its stdout (in-loop local re-declaration?) — $(cat "$STDERR_FILE")"
+  fi
+  pass "$sh: option-cache loop stdout clean across 3 options"
+done
+
 echo
 echo "All lib-zsh-compat tests passed."
