@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is **sillok** — a Claude Code plugin, not an application that uses one. The unit of shipping is a `.claude-plugin/plugin.json` manifest plus the slash commands, skills, scripts, schema, and rule templates that get installed into _other_ projects via `/plugin marketplace add judeProground/sillok`.
 
-Concretely, the plugin is six slash commands under `commands/`, three skills under `skills/`, helper bash scripts under `scripts/`, a JSON config schema in `schema/v1.json`, and the rule + config templates copied into consumer projects by `/sillok-init` (under `templates/`).
+Concretely, the plugin is six thin wrapper commands under `commands/` (pointer-only; each invokes its stage skill), ten skills under `skills/` — seven workflow skills (`workflow` orchestrator + `start`/`design`/`execute`/`end`/`story`/`init` stage skills) and three reference skills (`verify-gate`, `verify-spec-gate`, `gh-issue-management`) — a SessionStart hook under `hooks/`, helper bash scripts under `scripts/`, a JSON config schema in `schema/v1.json`, and the rule + config templates copied into consumer projects by `/sillok-init` (under `templates/`).
 
 Do **not** run `/sillok-init` inside this repo — it's for downstream projects, not for the plugin's own development.
 
@@ -32,11 +32,19 @@ There is no build step, lint command, or package manager — this is pure bash +
 
 ## Architecture
 
-### Command → precompute-script → config-lib pattern
+### Skill → precompute-script → config-lib pattern
 
-Each `commands/sillok-*.md` is a markdown prompt that Claude runs. The expensive deterministic state derivation (current branch, issue metadata, labels, plan task counts, CWD-vs-worktree drift, etc.) is delegated to a sibling `scripts/precompute-<command>.sh` script that prints a markdown block. The command then reads that block as ground truth and only handles the LLM-judgment portions (brainstorming, body composition, user confirmation).
+Each `commands/sillok-*.md` is a ≤15-line pointer wrapper; the substantive body lives in `skills/<stage>/SKILL.md` (the markdown prompt Claude runs). The expensive deterministic state derivation (current branch, issue metadata, labels, plan task counts, CWD-vs-worktree drift, etc.) is delegated to a sibling `scripts/precompute-<stage>.sh` script that prints a markdown block. The skill then reads that block as ground truth and only handles the LLM-judgment portions (brainstorming, body composition, user confirmation).
 
-Why: bash is much cheaper than LLM tool round-trips for state checks, and printing one markdown block avoids spending the conversation context on multi-step shell inspection. When adding a new code-path that needs git/gh state, add it to the matching `precompute-*.sh` rather than putting `gh issue view` inside the command markdown.
+Why: bash is much cheaper than LLM tool round-trips for state checks, and printing one markdown block avoids spending the conversation context on multi-step shell inspection. When adding a new code-path that needs git/gh state, add it to the matching `precompute-*.sh` rather than putting `gh issue view` inside the skill markdown.
+
+Two hard contracts from the refactor (story #15): `${CLAUDE_PLUGIN_ROOT}` script invocations live in SKILL.md bodies ONLY (substitution is guaranteed for skill content; subfiles like `skills/end/pr-body-templates.md` are read raw, so they stay pure prose/templates), and wrappers never use `$ARGUMENTS` (consumer shims raw-read them) — argument pass-through is prose. Both are lint-enforced (see Testing).
+
+Stage chaining is owned by the `sillok:workflow` orchestrator skill: stage skills end with a one-line handoff ("invoke `sillok:workflow` to decide the next step"), and only the orchestrator knows the transition map and reads the `automation` config (`automation.fullAuto: true` runs start → design → execute → end unprompted, stopping after PR creation; absent key == propose mode). `init` sits outside the chain and is never auto-routed. Stage skills carry `user-invocable: false` and deferral-marker descriptions ("Internal sillok stage skill — enter via the `/sillok-<stage>` command or a `sillok:workflow` handoff"); the workflow skill is the single auto-fire entry point ("Use when..." trigger description).
+
+### SessionStart hook
+
+`hooks/hooks.json` registers `hooks/session-start.sh`, which injects a compact sillok context block (automation mode, branch ↔ issue) into every session of a sillok-configured project. Hard contract (it runs in EVERY consumer session): always exits 0; zero stdout/stderr when the config is absent, the CWD is not a git repo, or anything errors; no network and no `gh` calls — branch ↔ issue is derived locally via `sillok_branch_prefix_regex`. Guarded by `tests/session-start-hook.test.sh`.
 
 ### Config resolution: project overrides plugin default
 
@@ -64,7 +72,7 @@ When walking `BASH_REMATCH` after that regex: the `{type}` alternation injects a
 
 ### Story = integration branch
 
-A story in sillok is a parent tracking issue PLUS a real `story/issue-<N>-<slug>` branch PLUS a worktree. Sub-features cut from and PR back to the integration branch; the story PR then merges to base with `--merge` (preserving sub-feature commits), not `--squash`. This is enforced across three commands:
+A story in sillok is a parent tracking issue PLUS a real `story/issue-<N>-<slug>` branch PLUS a worktree. Sub-features cut from and PR back to the integration branch; the story PR then merges to base with `--merge` (preserving sub-feature commits), not `--squash`. This is enforced across three stages:
 
 - `/sillok-story` creates the integration branch + pushes it to origin.
 - `/sillok-start --parent N` looks up the parent's `## Integration branch` body section and passes that branch as the 3rd arg to `setup-feature-worktree.sh`.
@@ -91,11 +99,11 @@ The `sillok-shim: true` frontmatter marker identifies sillok-managed shims for i
 
 ### Area-label detection
 
-`/sillok-init` Step 8b detects `area:<name>` GitHub labels with a **hybrid**: `scripts/project-tree.sh` deterministically emits the project's pruned directory tree, then the LLM running the command classifies which dirs are **vertical business areas** (`auth`, `wallet`, `cash-withdrawal`) vs **horizontal technical layers** (`controller`, `dto`, `entity`, `guard`, …) and proposes the area list. GitHub labels are created only after a one-time confirmation (auto-accepted under auto-mode). Existing non-empty `labels.areas` is preserved on re-init.
+`/sillok-init` Step 8b (in `skills/init/SKILL.md`) detects `area:<name>` GitHub labels with a **hybrid**: `scripts/project-tree.sh` deterministically emits the project's pruned directory tree, then the LLM running the skill classifies which dirs are **vertical business areas** (`auth`, `wallet`, `cash-withdrawal`) vs **horizontal technical layers** (`controller`, `dto`, `entity`, `guard`, …) and proposes the area list. GitHub labels are created only after a one-time confirmation (auto-accepted under auto-mode). Existing non-empty `labels.areas` is preserved on re-init.
 
 Pruning in `project-tree.sh` is three layers: (a) a built-in name set of build/tool + native-platform dirs that are never feature areas (`node_modules`, `dist`, `build`, `target`, `__pycache__`, `venv`, `Pods`, and — crucially for React Native, since they're *committed* — `android`/`ios`); (b) all dot-dirs (`.git`, `.venv`, `.gradle`, …); and (c) when inside a git repo, anything `git check-ignore` reports as ignored by the project's `.gitignore` (generalizes to every language's build junk without an exhaustive list). Dirs only, NO depth cap, ~500-line backstop with a truncation marker.
 
-Why hybrid: a fixed-path heuristic can't tell a business domain from a technical layer and breaks on unanticipated layouts (`src/service/` singular, `src/service/v2/` nesting). Structure-gathering is deterministic and belongs in bash; domain-vs-layer is judgment and belongs in the LLM command. The classifier output is reviewed (confirm gate) and lands in a git-tracked, editable config, so LLM non-determinism is bounded. See #39 for the bug that surfaced this; the deleted `detect-slices.sh`/`pick-areas.sh` were the rank-threshold approach that this replaces.
+Why hybrid: a fixed-path heuristic can't tell a business domain from a technical layer and breaks on unanticipated layouts (`src/service/` singular, `src/service/v2/` nesting). Structure-gathering is deterministic and belongs in bash; domain-vs-layer is judgment and belongs in the LLM skill. The classifier output is reviewed (confirm gate) and lands in a git-tracked, editable config, so LLM non-determinism is bounded. See #39 for the bug that surfaced this; the deleted `detect-slices.sh`/`pick-areas.sh` were the rank-threshold approach that this replaces.
 
 ### v2: Issue Types + Projects v2 + Development panel
 
@@ -112,7 +120,7 @@ v2.0 replaced label-based type/stage tracking with GitHub-native primitives:
 
 | Script | Purpose |
 |--------|---------|
-| `precompute-{start,design,execute,end}.sh` | State derivation for each slash command |
+| `precompute-{start,design,execute,end}.sh` | State derivation for each stage skill |
 | `setup-feature-worktree.sh` | Creates worktree + branch for a new issue |
 | `bootstrap-labels.sh` | Idempotent GitHub label creation |
 | `project-tree.sh` | Emits a pruned directory tree (junk-removed, no depth cap) for area-label classification |
@@ -131,6 +139,8 @@ v2.0 replaced label-based type/stage tracking with GitHub-native primitives:
 ## Testing
 
 Tests live in `tests/*.test.sh`. Each test is a standalone bash script that creates a temp directory, exercises one script, and prints `pass`/`fail` lines. To add a new test: create `tests/<script-name>.test.sh`, define `pass()`/`fail()` helpers, and follow the existing pattern of setting up a temp project with `CLAUDE_PLUGIN_ROOT` pointing at the repo root.
+
+Three lint tests enforce the skill-wrapper architecture: `command-wrapper-lint.test.sh` (every `commands/sillok-*.md` is a ≤15-line pointer wrapper — no `${CLAUDE_PLUGIN_ROOT}`, no `$ARGUMENTS`, no `## Step`), `skill-frontmatter.test.sh` (stage skills declare `name` + `user-invocable: false` + a deferral-marker description; among the workflow-chain skills, only `skills/workflow` gets "Use when..." trigger phrasing — the three reference skills keep theirs), and `skill-subfile-lint.test.sh` (`${CLAUDE_PLUGIN_ROOT}` is forbidden in skill subfiles — substitution only happens in SKILL.md bodies). Markdown skill bodies themselves are LLM-executed, so structural contracts are grep-anchored against `skills/<stage>/SKILL.md` (e.g. `sillok-init-detection.test.sh`, `sillok-init-migration.test.sh`).
 
 ## Bash conventions
 
@@ -152,8 +162,22 @@ Grep for the old version string before each release: `grep -rn "$OLD_VERSION" .c
 
 ## Skills bundled
 
+Workflow skills (story #15 refactor):
+
+- `sillok:workflow` — stage orchestrator; the only workflow-chain skill with a "Use when..." auto-trigger description (the three reference skills keep their "Use when/Use after" descriptions by design). Owns the transition map (start → design → execute → end; story loop), reads `automation.fullAuto` (propose mode by default; full-auto chains stages unprompted and stops after PR creation, never merging), and never routes `init`.
+- `sillok:start` — create GH issue + Issue Type + assignee + linked branch + worktree + project status Todo (subfile: `issue-body-template.md`).
+- `sillok:design` — brainstorm + spec, paste spec into issue body, status In Design (subfile: `story-mode.md` for story-design).
+- `sillok:execute` — write plan, subagent-driven execution, end-of-plan verify-gate, status In Progress.
+- `sillok:end` — push, PR per pr-convention, status In QA, parent legacy-checkbox update; never auto-merges (subfile: `pr-body-templates.md`).
+- `sillok:story` — create or promote-to a story (parent issue + integration branch + worktree).
+- `sillok:init` — project bootstrap; idempotent; outside the workflow chain (always interactive, never auto-routed).
+
+Stage skills (everything above except `workflow`) carry `user-invocable: false` and deferral-marker descriptions leading with "Internal sillok stage skill — enter via the `/sillok-<stage>` command or a `sillok:workflow` handoff" — pointing entry at the wrappers and the orchestrator.
+
+Reference skills:
+
 - `sillok:verify-gate` — whole-branch verification (lint/typecheck/format → code-reviewer subagent → simplify). Required at end-of-plan in `/sillok-execute`.
 - `sillok:verify-spec-gate` — spec-compliance reference (patterns.md, principles.md, smells.md as on-demand subfiles).
 - `sillok:gh-issue-management` — canonical procedure for issue creation/triage/linking; substitutes `${REPO}` / `${OWNER}` / `${NAME}` from config at runtime.
 
-Skills are loaded by Claude Code from the plugin's `skills/` directory automatically once the plugin is installed in a consumer project. The plugin itself does not invoke them; downstream `superpowers:*` skills and the slash commands do.
+Skills are loaded by Claude Code from the plugin's `skills/` directory automatically once the plugin is installed in a consumer project. The wrapper commands, the `sillok:workflow` orchestrator, and downstream `superpowers:*` skills invoke them.

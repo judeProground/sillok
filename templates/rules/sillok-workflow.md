@@ -14,6 +14,8 @@ GitHub-Issue-driven feature pipeline. Always use these slash commands instead of
 
 Project status (`Todo`/`In Design`/`In Progress`/`In QA`) is set by the commands — do not change by hand.
 
+Stage transitions are owned by the `sillok:workflow` orchestrator skill: by default it proposes the next stage and waits for confirmation (propose mode). With `automation.fullAuto: true` in `workflow.config.json` it chains start → design → execute → end unprompted, stopping after PR creation — it never merges.
+
 ## Command invocation forms
 
 Every sillok command can be invoked two ways:
@@ -33,18 +35,19 @@ The shim files carry a `sillok-shim: true` frontmatter marker so re-running `/si
 | Spec needs writing for the active issue | `/sillok-design` |
 | Spec is locked, ready to implement | `/sillok-execute` |
 | Implementation done, want a PR | `/sillok-end` |
+| Work needs ≥2 sub-feature PRs in this repo | `/sillok-story` |
 
-## Epic vs feature
+## Story vs feature
 
 `/sillok-start` creates **work-unit** issues (`feature` / `bug` / `improvement` / `infra`) — single issue, single PR.
 
-`/sillok-epic` creates **parent tracking** issues (label `epic`, ≥3 sub-issues spanning multiple PRs). Epics have a different body shape (Architecture / Sub-issues / Context / Non-goals) and no design/execute/end phase — sub-issues run those individually. Then for each sub-issue: `/sillok-start --parent <epic-N>`.
+`/sillok-story` creates **parent tracking** issues — Issue Type `Story` (org mode) or a `story` label (user mode) — for in-repo composites spanning ≥2 sub-feature PRs. Stories have a different body shape (Integration branch / Key decisions / Architecture / Sub-issues / Context / Non-goals) and no code-level spec/plan of their own — `/sillok-design` in story mode fills Key decisions and Architecture; sub-issues run design/execute/end individually. Then for each sub-issue: `/sillok-start --parent <story-N>`.
 
-See "Epic template" in `gh-issue-conventions.md` for the body shape; the canonical epic example is the canonical example.
+See "Story template" in `gh-issue-conventions.md` for the body shape.
 
 ## Worktree note
 
-Every `/sillok-start` creates `.worktrees/<N>-<slug>` and bases the branch on `origin/main`, even if invoked from an umbrella branch. After it returns, `cd .worktrees/<N>-<slug>` before running design/execute. Session-resume can silently reset cwd back to the main repo — design/execute precompute scripts detect this and surface the cd command.
+Every `/sillok-start` creates `.worktrees/<N>-<slug>` and bases the branch on the configured `baseBranch` — or on the story integration branch when run with `--parent <N>` pointing at a story — even if invoked from another branch. After it returns, `cd .worktrees/<N>-<slug>` before running design/execute. Session-resume can silently reset cwd back to the main repo — design/execute precompute scripts detect this and surface the cd command.
 
 ## Don't bypass
 
@@ -52,14 +55,14 @@ Every `/sillok-start` creates `.worktrees/<N>-<slug>` and bases the branch on `o
 - Don't manually change project status — let the commands do it.
 - Don't open PRs via `gh pr create` — use `/sillok-end` so the body uses the convention and `Closes #N` auto-closes on merge.
 
-## Epic = integration branch
+## Story = integration branch
 
-Every epic gets a real branch (`epic/issue-<N>-<slug>`) and a worktree, not just a tracking issue. Sub-features under an epic cut from and PR back to the integration branch. The epic itself merges to the configured `baseBranch` (usually `main`) with a **merge commit** — not a squash — so sub-feature commits remain visible in the base-branch history.
+Every story gets a real branch (`story/issue-<N>-<slug>`) and a worktree, not just a tracking issue. Sub-features under a story cut from and PR back to the integration branch (squash-merged into it). The story itself merges to the configured `baseBranch` (usually `main`) with a **merge commit** — not a squash — so sub-feature commits remain visible in the base-branch history.
 
-You can either start an epic up front:
+You can either start a story up front:
 
 ```bash
-/sillok-epic     # on main or any non-sillok branch → creates epic from scratch
+/sillok-story    # on main or any non-sillok branch → creates story from scratch
 ```
 
 …or promote a feature that grew too big:
@@ -67,7 +70,7 @@ You can either start an epic up front:
 ```bash
 /sillok-start    # creates feature/issue-43-foo as usual
 # ...halfway through, you realize the work needs sub-features
-/sillok-epic     # from inside feature/issue-43-foo → offers promotion
+/sillok-story    # from inside feature/issue-43-foo → offers promotion
 ```
 
-After promotion, `feature/issue-43-foo` becomes `epic/issue-43-foo`, the issue label flips to `epic`, the body is rewritten to the epic template, and any work-in-progress in the worktree can optionally be split into its own sub-feature branch.
+After promotion, `feature/issue-43-foo` becomes `story/issue-43-foo`, the GitHub Issue Type flips to `Story` (org mode; in user mode the `story` label stands in), the body is rewritten to the story template, and any work-in-progress in the worktree can optionally be split into its own sub-feature branch.

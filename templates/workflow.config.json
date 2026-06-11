@@ -12,6 +12,10 @@
 
   "orgMode": false,
 
+  "automation": {
+    "fullAuto": false
+  },
+
   "project": {
     "owner": "",
     "number": 0,

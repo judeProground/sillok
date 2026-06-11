@@ -29,19 +29,31 @@ echo "## precomputed state for /sillok-start"
 echo
 echo "- Current branch: \`$branch\`"
 
-# Abort hint: already mid-feature on another issue (any sillok type)
+# Abort hint: already mid-feature on another issue (any sillok type EXCEPT
+# story — starting a sub-feature FROM the story integration worktree is the
+# documented loop, so a story branch is a sanctioned starting point).
 prefix_regex=$(sillok_branch_prefix_regex)
 if [[ -n "$prefix_regex" && "$branch" =~ ^${prefix_regex}([0-9]+)- ]]; then
-  # The template may inject capture groups (e.g. {type} alternation), so the
-  # issue number is the first numeric capture in BASH_REMATCH from index 1.
+  # The template may inject capture groups (e.g. {type} alternation), so walk
+  # BASH_REMATCH from index 1: the first numeric capture is the issue number,
+  # the first non-numeric capture is the matched type token.
   matched_n=""
+  matched_type=""
   for cap in "${BASH_REMATCH[@]:1}"; do
-    if [[ -z "$matched_n" && "$cap" =~ ^[0-9]+$ ]]; then
-      matched_n="$cap"
+    if [[ "$cap" =~ ^[0-9]+$ ]]; then
+      if [[ -z "$matched_n" ]]; then
+        matched_n="$cap"
+      fi
+    elif [[ -z "$matched_type" ]]; then
+      matched_type="$cap"
     fi
   done
-  echo "- ABORT: already on issue branch for #${matched_n:-?} — finish or stash before starting a new feature"
-  exit 0
+  if [[ "$matched_type" == "story" ]]; then
+    echo "- STORY-BRANCH: \`$branch\` (issue #${matched_n:-?}) — sanctioned starting point for \`--parent ${matched_n:-<N>}\`"
+  else
+    echo "- ABORT: already on issue branch for #${matched_n:-?} — finish or stash before starting a new feature"
+    exit 0
+  fi
 fi
 
 # Open epics (for parent suggestion)

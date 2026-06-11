@@ -50,9 +50,9 @@ Force push to **any** branch is forbidden unless the user explicitly requests it
 
 **Squash merge** is the default for sub-feature PRs. It keeps the base branch history linear and readable. Individual development commits on the feature branch collapse into a single commit with the PR title as the message.
 
-### Exception: epic-finalization PRs
+### Exception: story-finalization PRs
 
-PRs created by `/sillok-end` from an `epic/issue-<N>-<slug>` branch should be merged with `gh pr merge --merge` (a merge commit), NOT `--squash`. The integration branch already has clean per-sub-feature commits; squashing the epic PR would flatten that history into a single blob on the base branch. The epic PR body includes a `## Recommended merge` advisory that the user must follow manually — sillok does not auto-merge.
+PRs created by `/sillok-end` from a `story/issue-<N>-<slug>` branch should be merged with `gh pr merge --merge` (a merge commit), NOT `--squash`. The integration branch already has clean per-sub-feature commits (each sub-feature was squash-merged into it); squashing the story PR would flatten that history into a single blob on the base branch. The story PR body includes a `## Recommended merge` advisory that the user must follow manually — sillok does not auto-merge (even under `automation.fullAuto`, the workflow chain stops after PR creation and never merges).
 
 ## Review
 
