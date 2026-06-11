@@ -68,10 +68,11 @@ Types are set during issue creation via REST: `POST /repos/{owner}/{repo}/issues
 
 ### Stage (Projects v2 Status field — not a label)
 
-Lifecycle stage lives in the project's Status single-select field, not on the issue as a label. The five canonical statuses:
+Lifecycle stage lives in the project's Status single-select field, not on the issue as a label. The six canonical statuses:
 
 | Status         | When applied                                          | Set by                           |
 | -------------- | ----------------------------------------------------- | -------------------------------- |
+| `Backlog`      | Pre-sprint capture, set by `/sillok-add`; promote via `/sillok-start <N>` (adopt) | `/sillok-add` + auto-add WF |
 | `Todo`         | Issue created, ready to start                         | `/sillok-start` + auto-add WF    |
 | `In Design`    | Spec exists at `docs/superpowers/specs/...`           | `/sillok-design`                 |
 | `In Progress`  | Plan exists, work started                             | `/sillok-execute`                |
@@ -189,10 +190,9 @@ Each flow has the same shape: When → Steps → Done state.
 
 **When:** Issue exists, you're starting work on it.
 
-1. `gh issue view N` to read context (don't open in browser).
-2. Checkout `${BRANCH_PREFIX}<N>-<slug>` — create from `main` if it doesn't exist.
-3. Read spec/plan if linked in the issue body.
-4. Move Status to `In Progress` via `sillok_project_status_set` (the project Status field — not a label).
+1. `/sillok-start <N>` — adopt mode runs the full environment setup (slug, branch, worktree, linked branch, push) and backfills assignee + sprint milestone, moving Backlog → Todo.
+2. Already In Progress / In QA? adopt warns and, on confirm, keeps the board status while still setting up the environment.
+3. Read spec/plan if linked in the issue body, then continue with `/sillok-design` or `/sillok-execute` per the issue's actual stage.
 
 ### 3. Quick Fix
 
@@ -233,17 +233,17 @@ Each flow has the same shape: When → Steps → Done state.
 
 **When:** Backlog has grown unwieldy.
 
-1. Query project items with Status unset (or with a `Backlog` extension status if configured under `project.statuses`).
+1. Query project items with Status `Backlog` (plus items with Status unset).
 2. Close stale (>3 months untouched, no longer relevant): `gh issue close N --reason "not planned" --comment "Stale; closing during triage."`.
 3. Re-prioritize survivors with priority labels.
-4. Promote ready items: set Status to `Todo` via `sillok_project_status_set`.
+4. Promote ready items: `/sillok-start <N>` (adopt) when starting now, or set Status to `Todo` via `sillok_project_status_set` when just queueing.
 
 ### 8. Mid-Session Discovery
 
 **When:** Working on issue X, find a separate bug or idea worth filing.
 
 1. Note the discovery briefly.
-2. Create issue with `type=Bug` (or appropriate Type). Don't triage immediately — the goal is to NOT context-switch.
+2. Create it with `/sillok-add` — backlog capture works from any branch and does not disturb the current worktree. Don't triage immediately — the goal is to NOT context-switch.
 3. Continue current task X.
 4. Revisit during next sprint planning (flow 6) or backlog triage (flow 7).
 

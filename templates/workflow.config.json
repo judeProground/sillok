@@ -21,6 +21,7 @@
     "number": 0,
     "statusField": "Status",
     "statuses": {
+      "backlog":  "Backlog",
       "todo":     "Todo",
       "design":   "In Design",
       "progress": "In Progress",

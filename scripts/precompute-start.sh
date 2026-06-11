@@ -5,6 +5,16 @@
 # this once instead of running 3 separate tool round-trips.
 set -euo pipefail
 
+# Optional positional arg: issue number to ADOPT (accepts "33" or "#33").
+# When present, a "### Adopt" section with an ADOPT-OK/WARN/ABORT verdict is
+# appended after the branch guard. No arg = original one-shot behavior.
+ADOPT_N="${1:-}"
+ADOPT_N="${ADOPT_N#\#}"
+if [[ -n "$ADOPT_N" && ! "$ADOPT_N" =~ ^[0-9]+$ ]]; then
+  echo "[precompute-start] invalid adopt argument: '$1' (expected an issue number)" >&2
+  exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/config.sh
 source "$SCRIPT_DIR/lib/config.sh"
@@ -56,55 +66,141 @@ if [[ -n "$prefix_regex" && "$branch" =~ ^${prefix_regex}([0-9]+)- ]]; then
   fi
 fi
 
-# Open epics (for parent suggestion)
-echo
-echo "### Open epics"
+# Adopt mode: fetch the target issue and emit a verdict block.
+if [[ -n "$ADOPT_N" ]]; then
+  source "$SCRIPT_DIR/lib/project.sh"
+  echo
+  echo "### Adopt"
+  issue_json=$(gh api -H "X-GitHub-Api-Version: 2026-03-10" "/repos/$REPO/issues/$ADOPT_N" 2>/dev/null || echo "")
+  if [[ -z "$issue_json" ]]; then
+    echo "- ADOPT-ABORT: issue #$ADOPT_N not found in $REPO (or gh not authenticated)"
+  else
+    a_state=$(printf '%s' "$issue_json" | jq -r '.state // empty')
+    a_title=$(printf '%s' "$issue_json" | jq -r '.title // empty')
+    a_type=$(printf '%s' "$issue_json" | jq -r '.type.name // empty')
+    a_labels=$(printf '%s' "$issue_json" | jq -r '[.labels[].name] | join(", ")')
+    a_milestone=$(printf '%s' "$issue_json" | jq -r '.milestone.title // empty')
+    a_assignees=$(printf '%s' "$issue_json" | jq -r '[.assignees[].login] | join(", ")')
+    a_parent=$(printf '%s' "$issue_json" | jq -r '.body // ""' | grep -m1 -oE '^Parent: ([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+' | sed 's/^Parent: //' || true)
 
-# Local-repo stories/epics (for parent suggestion).
-# orgMode=true: query by Issue Type. orgMode=false: query by label fallback.
-ORG_MODE=$(sillok_config orgMode)
-if [[ "$ORG_MODE" == "true" ]]; then
-  # IssueFilters has no issueType argument (#41) — the Search API's type:
-  # qualifier is the supported server-side filter for Issue Types.
-  local_stories=$(gh api graphql \
-    -f query="{ search(query: \"repo:$REPO is:issue is:open type:Story\", type: ISSUE, first: 20) {
-      nodes { ... on Issue { number title } }
-    } }" --jq '.data.search.nodes[]? | "  - (in this repo) #\(.number) [Story] \(.title)"' 2>/dev/null) || {
-    echo "[precompute-start] open-epics query failed (type:Story, repo $REPO) — continuing with empty list" >&2
-    local_stories=""
-  }
-else
-  # User repo: Issue Types unavailable. Fall back to label-based query.
-  local_stories=$(gh issue list --repo "$REPO" --label story --state open --limit 20 --json number,title \
-    --jq '.[]? | "  - (in this repo) #\(.number) [story] \(.title)"' 2>/dev/null || echo "")
+    # User-mode repos have no Issue Type — fall back to the first label that
+    # names a configured type (types.list lowercased — the single source the
+    # branch-prefix machinery already uses).
+    if [[ -z "$a_type" ]]; then
+      types_lc=$(sillok_config_array types.list | tr '[:upper:]' '[:lower:]')
+      if [[ -n "$types_lc" ]]; then
+        a_type=$(printf '%s' "$issue_json" | jq -r '.labels[].name' \
+          | grep -ixF -f <(printf '%s\n' "$types_lc") | head -1 || true)
+      fi
+    fi
+    a_type_lc=$(printf '%s' "$a_type" | tr '[:upper:]' '[:lower:]')
+
+    echo "- Issue: #$ADOPT_N $a_title"
+    echo "- State: $a_state"
+    echo "- Type: ${a_type:-unknown}"
+    echo "- Labels: ${a_labels:-none}"
+    echo "- Milestone: ${a_milestone:-none}"
+    echo "- Assignees: ${a_assignees:-none}"
+    if [[ -n "$a_parent" ]]; then
+      echo "- Parent: $a_parent"
+    fi
+    # Deterministic branch-type derivation — the skill reads this as ground
+    # truth instead of re-deriving from the Type line (story/epic abort below).
+    echo "- Branch type: ${a_type_lc:-feature}"
+
+    if [[ "$a_state" != "open" && "$a_state" != "OPEN" ]]; then
+      # Early exit: a dead issue never needs the branch/board lookups below.
+      echo "- ADOPT-ABORT: issue #$ADOPT_N is $a_state"
+    elif [[ "$a_type_lc" == "story" || "$a_type_lc" == "epic" ]]; then
+      echo "- ADOPT-ABORT: #$ADOPT_N is a ${a_type} — composites go through /sillok-story, not adopt"
+    else
+      # Existing sillok branch (remote or local) for this issue number?
+      # Each lookup is individually failure-masked: set -e + pipefail would
+      # otherwise kill the script on a repo with no remote.
+      remote_heads=$(git ls-remote --heads origin 2>/dev/null | awk '{print $2}' | sed 's#^refs/heads/##' || true)
+      local_heads=$(git for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null || true)
+      existing_branch=$(printf '%s\n%s\n' "$remote_heads" "$local_heads" | grep -E "^${prefix_regex}${ADOPT_N}-" | head -1 || true)
+
+      if [[ -n "$existing_branch" ]]; then
+        echo "- ADOPT-ABORT: branch \`$existing_branch\` already exists for #$ADOPT_N — environment is already set up (switch to its worktree instead)"
+      else
+        # Board status — best-effort; empty when board unconfigured or not on it.
+        a_status=""
+        a_item_id=$(sillok_project_item_for_issue "https://github.com/$REPO/issues/$ADOPT_N" 2>/dev/null || echo "")
+        if [[ -n "$a_item_id" ]]; then
+          a_status=$(sillok_project_status_get "$a_item_id" 2>/dev/null || echo "")
+        fi
+        echo "- Project status: ${a_status:-not on board}"
+
+        # Whitelist gate: only pre-work statuses (Backlog / Todo / not on
+        # board) adopt silently. Anything else — In Design, In Progress,
+        # In QA, Done, or a custom status — warns; the environment can still
+        # be set up on confirmation, but the status is KEPT.
+        s_backlog=$(sillok_config project.statuses.backlog)
+        s_todo=$(sillok_config project.statuses.todo)
+        if [[ -n "$a_status" && "$a_status" != "$s_backlog" && "$a_status" != "$s_todo" ]]; then
+          echo "- ADOPT-WARN: #$ADOPT_N is already '$a_status' — confirm with the user before setting up the environment (board status will be KEPT, not reset to Todo)"
+        else
+          echo "- ADOPT-OK: ready to adopt (board status will be set to Todo)"
+        fi
+      fi
+    fi
+  fi
 fi
 
-# Cross-repo PRD epics from prdRepo, if configured.
-PRD_REPO=$(sillok_config prdRepo)
-prd_epics=""
-if [[ -n "$PRD_REPO" ]]; then
+# Open epics (for parent suggestion) — skipped in adopt mode: an adopted
+# issue keeps its own parent relationship, so the parent prompt never runs
+# and the 1-2 gh lookups here would be wasted.
+if [[ -z "$ADOPT_N" ]]; then
+  echo
+  echo "### Open epics"
+
+  # Local-repo stories/epics (for parent suggestion).
+  # orgMode=true: query by Issue Type. orgMode=false: query by label fallback.
+  ORG_MODE=$(sillok_config orgMode)
   if [[ "$ORG_MODE" == "true" ]]; then
-    prd_epics=$(gh api graphql \
-      -f query="{ search(query: \"repo:$PRD_REPO is:issue is:open type:Epic\", type: ISSUE, first: 20) {
+    # IssueFilters has no issueType argument (#41) — the Search API's type:
+    # qualifier is the supported server-side filter for Issue Types.
+    local_stories=$(gh api graphql \
+      -f query="{ search(query: \"repo:$REPO is:issue is:open type:Story\", type: ISSUE, first: 20) {
         nodes { ... on Issue { number title } }
-      } }" --jq ".data.search.nodes[]? | \"  - (in $PRD_REPO) #\(.number) [Epic] \(.title)\"" 2>/dev/null) || {
-      echo "[precompute-start] open-epics query failed (type:Epic, repo $PRD_REPO) — continuing with empty list" >&2
-      prd_epics=""
+      } }" --jq '.data.search.nodes[]? | "  - (in this repo) #\(.number) [Story] \(.title)"' 2>/dev/null) || {
+      echo "[precompute-start] open-epics query failed (type:Story, repo $REPO) — continuing with empty list" >&2
+      local_stories=""
     }
   else
-    prd_epics=$(gh issue list --repo "$PRD_REPO" --label epic --state open --limit 20 --json number,title \
-      --jq ".[]? | \"  - (in $PRD_REPO) #\(.number) [epic] \(.title)\"" 2>/dev/null || echo "")
+    # User repo: Issue Types unavailable. Fall back to label-based query.
+    local_stories=$(gh issue list --repo "$REPO" --label story --state open --limit 20 --json number,title \
+      --jq '.[]? | "  - (in this repo) #\(.number) [story] \(.title)"' 2>/dev/null || echo "")
   fi
-fi
 
-if [[ -z "$local_stories" && -z "$prd_epics" ]]; then
-  echo "- (none — standalone unless --parent specified)"
-else
-  if [[ -n "$prd_epics" ]]; then
-    printf '%s\n' "$prd_epics"
+  # Cross-repo PRD epics from prdRepo, if configured.
+  PRD_REPO=$(sillok_config prdRepo)
+  prd_epics=""
+  if [[ -n "$PRD_REPO" ]]; then
+    if [[ "$ORG_MODE" == "true" ]]; then
+      prd_epics=$(gh api graphql \
+        -f query="{ search(query: \"repo:$PRD_REPO is:issue is:open type:Epic\", type: ISSUE, first: 20) {
+          nodes { ... on Issue { number title } }
+        } }" --jq ".data.search.nodes[]? | \"  - (in $PRD_REPO) #\(.number) [Epic] \(.title)\"" 2>/dev/null) || {
+        echo "[precompute-start] open-epics query failed (type:Epic, repo $PRD_REPO) — continuing with empty list" >&2
+        prd_epics=""
+      }
+    else
+      prd_epics=$(gh issue list --repo "$PRD_REPO" --label epic --state open --limit 20 --json number,title \
+        --jq ".[]? | \"  - (in $PRD_REPO) #\(.number) [epic] \(.title)\"" 2>/dev/null || echo "")
+    fi
   fi
-  if [[ -n "$local_stories" ]]; then
-    printf '%s\n' "$local_stories"
+
+  if [[ -z "$local_stories" && -z "$prd_epics" ]]; then
+    echo "- (none — standalone unless --parent specified)"
+  else
+    if [[ -n "$prd_epics" ]]; then
+      printf '%s\n' "$prd_epics"
+    fi
+    if [[ -n "$local_stories" ]]; then
+      printf '%s\n' "$local_stories"
+    fi
   fi
 fi
 

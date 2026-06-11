@@ -12,6 +12,7 @@ You are running the sillok `start` stage for the configured GitHub repository.
 
 Extract from the user's input:
 
+- Optional positional `#N` or `N` (a bare issue number) — **adopt mode**: pick up existing issue `#N` instead of creating a new one. Mutually exclusive with `[prd-path]` and `--parent` (an adopted issue keeps its own parent relationship). See "Adopt mode" below.
 - Optional positional `[prd-path]` — a markdown file path. Most starts have no PRD; that's expected.
 - Optional flag `--parent <value>` — issue reference. Three forms accepted:
   - `--parent 42` — same-repo issue #42
@@ -28,6 +29,14 @@ Run the precompute script to derive current branch, open epics (for parent sugge
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/precompute-start.sh
 ```
 
+In adopt mode, pass the issue number as the first argument:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/precompute-start.sh <N>
+```
+
+The output then contains a `### Adopt` section — see "Adopt mode" below.
+
 Read the markdown block it prints. Show it back to the user as the current state summary.
 
 If the output contains `ABORT:` (you're already on a branch matching the configured `branchPrefix`), surface that line as a hard stop with: "You're already on `<branch>` for issue #<N>. Finish or stash current work before starting a new feature." Do not proceed.
@@ -35,6 +44,27 @@ If the output contains `ABORT:` (you're already on a branch matching the configu
 If the output contains `STORY-BRANCH:` instead, you're on a story integration branch — that's the sanctioned starting point for the story loop. Proceed, treating `--parent <N>` (the story issue) as the default parent for Step 4.
 
 Umbrella branches (`feature/<name>`) are OK as starting points — `/sillok-start` from any umbrella branch is supported, and the new sub-issue's branch will still be cut from `origin/<baseBranch>` (configured), not from the umbrella.
+
+## Adopt mode (`/sillok-start #N`)
+
+When the precompute output contains a `### Adopt` section, you are adopting an existing issue. The existing ABORT/STORY-BRANCH branch guard still applies first (you cannot adopt while on another issue's branch).
+
+Read the verdict line:
+
+- `ADOPT-ABORT:` → hard stop. Surface the reason. If the reason is a Story/Epic type, point the user at `/sillok-story`. If a branch already exists, point at its worktree.
+- `ADOPT-WARN:` → the issue's board status is already past the capture stage (anything other than Backlog / Todo / not-on-board — e.g. In Design, In Progress, In QA, Done). Ask the user: "Issue #<N> is already '<status>'. Set up the environment anyway? The board status will be kept." Proceed only on explicit confirmation. This gate is ALWAYS interactive — full-auto never auto-resolves it.
+- `ADOPT-OK:` → proceed directly.
+
+Then:
+
+1. **Skip Steps 3, 4, 6, 7, and 8 entirely** — the issue already exists; no PRD intake, no parent prompt, no creation call. The `### Adopt` block's metadata (title, type, labels, milestone, assignees, parent) is ground truth.
+2. **Backfill** (each only when missing):
+   - No assignee → self-assign: `gh issue edit <N> --repo "$REPO" --add-assignee @me`
+   - No milestone → attach the current sprint milestone from the `### Sprint milestone` section (create it first via the Step 5 flow if it doesn't exist): `gh issue edit <N> --repo "$REPO" --milestone "<computed>"`
+3. **Branch type** comes precomputed: read the Adopt block's `Branch type:` line as ground truth (the script lowercases the issue type and defaults unknown to `feature` — don't re-derive it).
+4. Continue with **Step 9 (slug + branch)** using the issue's title — the non-ASCII translation rule applies as usual — then Step 9b (the Adopt block's `Parent:` line feeds the integration-branch lookup), Step 10, 10b, and 10c.
+5. **Step 10c status nuance:** after `ADOPT-OK`, set status `todo` as usual (this is the Backlog → Todo promotion). After a confirmed `ADOPT-WARN`, do NOT touch the status — skip the `sillok_project_status_set` call and keep the board as-is.
+6. In the Step 11 output, mark the issue line as `(adopted #N)`.
 
 ## Language
 

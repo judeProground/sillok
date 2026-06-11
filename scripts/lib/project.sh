@@ -199,7 +199,7 @@ sillok_project_status_get() {
 
 # Set status for a project item.
 # Usage: sillok_project_status_set <item-id> <status-key>
-#   status-key: one of todo, design, progress, review, done
+#   status-key: one of backlog, todo, design, progress, review, done
 sillok_project_status_set() {
   local item_id="$1"
   local status_key="$2"
@@ -227,7 +227,12 @@ sillok_project_status_set() {
   option_id=$(sillok_project_option_id "$field_name" "$option_name")
 
   if [[ -z "$item_id" || -z "$project_id" || -z "$field_id" || -z "$option_id" ]]; then
-    echo "[sillok] could not resolve item_id=$item_id project_id=$project_id field_id=$field_id option_id=$option_id" >&2
+    if [[ -n "$project_id" && -n "$field_id" && -z "$option_id" ]]; then
+      # Everything resolved except the option: the board simply lacks it.
+      echo "[sillok] status option '$option_name' not found on the board's '$field_name' field — add it in the project's field settings (Settings → Fields → $field_name)" >&2
+    else
+      echo "[sillok] could not resolve item_id=$item_id project_id=$project_id field_id=$field_id option_id=$option_id" >&2
+    fi
     return 1
   fi
 

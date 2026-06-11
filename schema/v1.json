@@ -59,6 +59,7 @@
           "type": "object",
           "required": ["todo", "design", "progress", "review", "done"],
           "properties": {
+            "backlog":  { "type": "string", "default": "Backlog", "description": "Pre-sprint capture status set by /sillok-add. Optional on the board; sillok warns and skips if the option is missing." },
             "todo":     { "type": "string", "default": "Todo" },
             "design":   { "type": "string", "default": "In Design" },
             "progress": { "type": "string", "default": "In Progress" },

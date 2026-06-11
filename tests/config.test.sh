@@ -207,5 +207,22 @@ TMPDIR_NOEPIC=$(mktemp -d)
 rm -rf "$TMPDIR_NOEPIC"
 pass "epic/* branches correctly excluded from v2 regex"
 
+echo "test: project.statuses.backlog falls back to template default"
+TMPDIR_BACKLOG=$(mktemp -d)
+(
+  cd "$TMPDIR_BACKLOG"
+  git init -q
+  mkdir -p .claude/sillok
+  # Old consumer config: has statuses but NO backlog key (pre-#33 config).
+  cat > .claude/sillok/workflow.config.json <<JSON
+{ "version": 1, "repo": "x/y",
+  "project": { "statuses": { "todo": "Todo", "done": "Done" } } }
+JSON
+  val=$(sillok_config project.statuses.backlog)
+  [[ "$val" == "Backlog" ]] || { echo "FAIL: expected 'Backlog' via template fallback, got '$val'"; exit 1; }
+)
+rm -rf "$TMPDIR_BACKLOG"
+pass "missing backlog key in project config → template default 'Backlog'"
+
 echo
 echo "All config.sh tests passed."
