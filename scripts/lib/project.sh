@@ -109,9 +109,14 @@ sillok_project_item_add() {
 sillok_project_field_id() {
   local name="$1"
 
+  # Cache line format: <name>:<id>| — `|` is the line separator, so field
+  # names containing it are unsupported. `:` IS allowed in names ("Sev: ops"):
+  # ids never contain `:`, so match the line prefix up to the LAST colon —
+  # a first-colon split (awk -F:) would truncate the name at its own colon
+  # and never match (the ensure path would then create a duplicate field).
   if [[ -n "$_SILLOK_FIELD_ID_CACHE" ]]; then
     local cached
-    cached=$(printf '%s' "$_SILLOK_FIELD_ID_CACHE" | tr '|' '\n' | awk -F: -v n="$name" '$1 == n { print $2; exit }')
+    cached=$(printf '%s' "$_SILLOK_FIELD_ID_CACHE" | tr '|' '\n' | awk -v n="$name" 'match($0, /:[^:]*$/) && substr($0, 1, RSTART - 1) == n { print substr($0, RSTART + 1); exit }')
     if [[ -n "$cached" ]]; then
       printf '%s' "$cached"
       return 0
@@ -132,7 +137,7 @@ sillok_project_field_id() {
 
   _SILLOK_FIELD_ID_CACHE=$(printf '%s' "$fields_json" | tr '\n' '|')
 
-  printf '%s' "$_SILLOK_FIELD_ID_CACHE" | tr '|' '\n' | awk -F: -v n="$name" '$1 == n { print $2; exit }'
+  printf '%s' "$_SILLOK_FIELD_ID_CACHE" | tr '|' '\n' | awk -v n="$name" 'match($0, /:[^:]*$/) && substr($0, 1, RSTART - 1) == n { print substr($0, RSTART + 1); exit }'
 }
 
 # Get the option ID for a named status option. Cached per field+option key.
