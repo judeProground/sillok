@@ -171,10 +171,15 @@ sillok_project_option_id() {
   # Append to cache. Declare ONCE above the loop: zsh prints `name=value` to
   # stdout when an existing variable is re-declared with local/typeset and no
   # assignment, so an in-loop declaration leaks from iteration 2 onward (#65).
+  #
+  # Cache line format: <field>::<name>#<id>| — `#` and `|` are separators, so
+  # option names containing them are unsupported. `:` IS allowed in names
+  # ("P1: urgent"): each line is "<name>:<id>" and ids never contain `:`, so
+  # split on the LAST colon (%:* / ##*:), never the first.
   local opt_name opt_id
   while IFS= read -r line; do
     opt_name="${line%:*}"
-    opt_id="${line#*:}"
+    opt_id="${line##*:}"
     _SILLOK_OPTION_ID_CACHE="${_SILLOK_OPTION_ID_CACHE}${field_name}::${opt_name}#${opt_id}|"
   done <<< "$options_json"
 

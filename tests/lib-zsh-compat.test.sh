@@ -88,7 +88,7 @@ cat > "$STUB_BIN/gh" <<'STUB'
 #!/bin/sh
 case "$1" in
   project) printf 'PVT_kwDOTEST001\n' ;;
-  api)     printf 'Todo:aaa1\nIn Progress:1bb1\nDone:ccc1\n' ;;
+  api)     printf 'Todo:aaa1\nIn Progress:1bb1\nP1: urgent:ddd1\nDone:ccc1\n' ;;
   *)       exit 1 ;;
 esac
 STUB
@@ -109,7 +109,21 @@ for sh in "${SHELLS[@]}"; do
   if ! run_in "$sh" "$snippet" 2>"$STDERR_FILE"; then
     fail "$sh: option-cache loop polluted its stdout (in-loop local re-declaration?) — $(cat "$STDERR_FILE")"
   fi
-  pass "$sh: option-cache loop stdout clean across 3 options"
+  pass "$sh: option-cache loop stdout clean across 4 options"
+done
+
+# Option NAMES may contain a colon ("P1: urgent"); ids never do. The cache
+# parse must split each "<name>:<id>" line on the LAST colon — a first-colon
+# split (${line#*:}) would yield " urgent:ddd1" instead of "ddd1" (#66).
+for sh in "${SHELLS[@]}"; do
+  snippet="export PATH='$STUB_BIN':\$PATH; cd '$PROJ_DIR'"
+  snippet+="; source '$REPO_ROOT/scripts/lib/project.sh'"
+  snippet+="; out=\$(sillok_project_option_id 'Status' 'P1: urgent')"
+  snippet+="; [ \"\$out\" = 'ddd1' ] || { echo \"wrong id for colon-name option: [\$out]\" >&2; exit 1; }"
+  if ! run_in "$sh" "$snippet" 2>"$STDERR_FILE"; then
+    fail "$sh: option name containing ':' parsed to the wrong id — $(cat "$STDERR_FILE")"
+  fi
+  pass "$sh: option name containing ':' resolves to the correct id"
 done
 
 echo
