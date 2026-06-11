@@ -48,12 +48,13 @@ Section headers (`## Summary`, `## Design`, `Parent:` etc.) and GitHub API field
 
 ### Full-auto mode
 
-When this stage is invoked via `sillok:workflow` in full-auto mode (`automation.fullAuto: true`), the four confirmation gates below are auto-resolved per the workflow contract — do not prompt:
+ONLY when this stage was entered via a `sillok:workflow` handoff that is running a confirmed full-auto chain (`automation.fullAuto: true` alone is NOT sufficient — direct `/sillok-start` invocation keeps every gate interactive), the four confirmation gates below are auto-resolved per the workflow contract — do not prompt:
 
 - Step 4 epic-fit question → answer `standalone` unless `--parent` was given.
 - Step 5 missing sprint milestone → create it without asking.
 - Step 6 issue-settings confirm loop → accept the proposed title/type/labels.
 - Step 9 branch-name confirm → accept the derived branch name.
+- Step 3 feature-description prompt (no-PRD path) → do not prompt; the description comes from the user's original intent utterance as interpreted (and confirmed) at chain entry by `sillok:workflow`. Never invent work.
 
 Record each auto-resolved choice in the created issue (the settings land in the issue body; non-obvious calls go under `## Key decisions` per the workflow's decide+record rule).
 

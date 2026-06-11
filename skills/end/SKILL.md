@@ -85,7 +85,7 @@ If push fails (e.g., branch out of date with remote): inspect error, prompt for 
 
 ## Step 4: Invoke finishing-a-development-branch
 
-Use the `superpowers:finishing-a-development-branch` skill for the merge/PR decision flow. The skill offers options. **For sillok, the answer is always "open a PR"** — auto-respond accordingly. Do not auto-merge.
+Use the `superpowers:finishing-a-development-branch` skill for the merge/PR decision flow. The skill offers options. **For sillok, the answer is always "open a PR"** — auto-respond accordingly. Do not auto-merge. **Decision only:** the actual `gh pr create` happens in Step 6 with the sillok PR body — if finishing-a-development-branch offers to create the PR itself, decline and continue to Step 5/6 (a generic-body PR here would violate the Closes-lines contract and collide with Step 6).
 
 ## Step 5: Compute PR body
 

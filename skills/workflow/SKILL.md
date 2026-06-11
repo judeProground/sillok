@@ -47,10 +47,11 @@ if [ -n "$issue_num" ]; then echo "sillok branch: $branch → issue #$issue_num"
 - **Match with type `story`** (`story/issue-N-*`) → on a story integration branch: next is either `start --parent N` (next sub-issue) or `end` in story-finalize mode. Do NOT judge readiness by sub-issue open/closed state — sub-issues stay OPEN until the story PR merges to base (sub-PRs target the integration branch and don't auto-close them). A sub-issue counts as **landed** when its PR into the integration branch is MERGED:
 
   ```bash
+  REPO=$(sillok_config_required repo)
   gh pr list --repo "$REPO" --base "$branch" --state merged --json number,title,headRefName
   ```
 
-  Route `end` (story-finalize) only when every planned sub-issue is landed: each sub-issue under the story has a merged PR into the integration branch, and no planned sub-issue lacks a branch/PR. If any sub-issue is unlanded, do NOT route story-finalize — route `start --parent N` or report the unlanded list. **In full-auto this check is a HARD GATE:** never auto-route story-finalize past an unlanded sub-issue.
+  Enumerate the PLANNED sub-issues from the story issue itself — the `## Sub-issues` checkbox list in its body plus GitHub's sub-issue list (`gh issue view N --repo "$REPO"`) — never from existing PRs alone: a planned sub-issue that has no branch/PR yet is invisible to the PR list but still unlanded. Route `end` (story-finalize) only when every planned sub-issue is landed: each has a merged PR into the integration branch, and none lacks a branch/PR. If any sub-issue is unlanded, do NOT route story-finalize — route `start --parent N` or report the unlanded list. **In full-auto this check is a HARD GATE:** never auto-route story-finalize past an unlanded sub-issue.
 - **Match with any other type** (`feature/issue-N-*`, `bug/...`, etc.) → on an issue branch. Disambiguate by checking the issue body (spec/plan sections) and local plan files:
   - No spec on the issue → next is `design`.
   - Spec exists, no plan / tasks unchecked → next is `execute`.
@@ -103,7 +104,7 @@ At chain ENTRY and at EVERY stage boundary, propose the next stage in one line a
 
 ## Full-auto mode (`automation.fullAuto: true`)
 
-- **Entry confirmation (once, natural-language entry only):** when the chain is ENTERED via natural-language intent — not an explicit `/sillok-*` command and not a stage-completion handoff — confirm the interpreted intent ONCE before the first gh/git mutation (e.g. "Interpreting this as: start a new feature for X — go?"). After that single confirmation the chain runs unprompted. Mid-chain stage boundaries stay unprompted. Explicit-command entry needs no confirmation.
+- **Entry confirmation (once, natural-language entry only):** when the chain is ENTERED via natural-language intent — not an explicit `/sillok-*` command and not a stage-completion handoff — state the interpreted intent ONCE (e.g. "Interpreting this as: start a new feature for X — go?") and **WAIT for the user's reply** before the first gh/git mutation. Announcing the interpretation is not confirmation. A forward-looking status question ("what's next here?") is a request for a REPORT, not chain entry — answer it; do not start mutating. After the single confirmation the chain runs unprompted; mid-chain stage boundaries stay unprompted. Explicit-command entry needs no confirmation.
 - Invoke the next stage directly — no proposal, no waiting.
 - Design-phase judgment calls (scope, approach, naming, trade-offs) are decided by Claude. EVERY such decision is recorded in the issue's `## Key decisions` section for post-hoc review. PR review is the safety net.
 - The chain STOPS after PR creation. NEVER merge — not the sub-issue PR, not the story PR. The stop point is fixed.
@@ -112,7 +113,7 @@ At chain ENTRY and at EVERY stage boundary, propose the next stage in one line a
 
 ### Stage-internal gates under full-auto
 
-When this skill invoked a stage in full-auto, the stage's INTERNAL confirmation gates are auto-resolved by Claude and recorded — they must not stall the chain:
+ONLY when this skill invoked the stage as part of a confirmed full-auto chain — never in propose mode, regardless of what the config says — the stage's INTERNAL confirmation gates are auto-resolved by Claude and recorded; they must not stall the chain:
 
 - **start** — accept the proposed issue title/type/labels (issue-settings confirm loop); accept the derived branch name; answer the epic-fit question `standalone` unless `--parent` was given; auto-create the missing sprint milestone.
 - **design** — the spec review loop and the Key-decisions loop are treated as Claude-confirmed; every such decision is recorded in the issue's `## Key decisions` per the decide+record rule above, and the In Design status set proceeds.
