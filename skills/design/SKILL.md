@@ -66,11 +66,11 @@ When the resolved language is Korean, generated prose (spec, key decisions, summ
 
 BAD (real sample):
 
-> Search API(type: qualifier)로 교체, 클라이언트 측 필터링 기각 — 클라이언트 필터링은 first: 20 페이지에 Story/Epic이 없으면 누락되어 페이지네이션이 필요해짐.
+> Search API(type: qualifier)로 교체, 클라이언트 측 필터링 기각 — 클라이언트 필터링은 first: 20 페이지에 Story/Epic이 없으면 누락되어 페이지네이션이 필요해짐. 단순 버그픽스 범위를 벗어남.
 
 GOOD:
 
-> Story/Epic 조회를 Search API의 `type:` qualifier 기반으로 교체했다. 클라이언트 측 필터링은 첫 `first: 20` 페이지에 Story/Epic이 없으면 결과가 누락되어 페이지네이션이 필요해지므로 기각했다.
+> Story/Epic 조회를 Search API의 `type:` qualifier 기반으로 교체했다. 클라이언트 측 필터링은 첫 `first: 20` 페이지에 Story/Epic이 없으면 결과가 누락되어 페이지네이션이 필요해지는데, 그건 단순 버그픽스의 범위를 벗어나므로 기각했다.
 
 ## Step 2: Pre-condition
 
