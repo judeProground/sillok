@@ -310,7 +310,7 @@ fi
 
 ## Step 7b: Write command shortcut shims (REQUIRED)
 
-This step is REQUIRED. Do not skip even when operating in auto-mode. The script only writes to `.claude/commands/sillok-*.md` files (5 specific filenames), respects existing foreign files via the `sillok-shim: true` marker, and is fully idempotent. Skipping it leaves the plugin's `/sillok-*` shortcuts inactive — a silent regression for the user.
+This step is REQUIRED. Do not skip even when operating in auto-mode. The script only writes to `.claude/commands/sillok-*.md` files (6 specific filenames), respects existing foreign files via the `sillok-shim: true` marker, and is fully idempotent. Skipping it leaves the plugin's `/sillok-*` shortcuts inactive — a silent regression for the user.
 
 Plugin slash commands are namespaced by Claude Code (`/sillok:sillok-start` etc.). The shims under `.claude/commands/` are the only supported mechanism for the shorter `/sillok-start` form.
 
@@ -460,7 +460,13 @@ If `project.owner` and `project.number` are configured, verify the project exist
 PROJ_OWNER=$(jq -r '.project.owner' "$CFG")
 PROJ_NUM=$(jq -r '.project.number' "$CFG")
 if [[ -n "$PROJ_OWNER" && "$PROJ_NUM" != "0" && "$PROJ_NUM" != "null" ]]; then
-  expected_opts=("Todo" "In Design" "In Progress" "In QA" "Done")
+  # Expected options come from the config's project.statuses VALUES (all six,
+  # including Backlog — #33), not a hardcoded list: the config is the contract
+  # the stage skills resolve against, so re-init must verify exactly what they
+  # will use.
+  expected_opts=()
+  while IFS= read -r opt; do expected_opts+=("$opt"); done \
+    < <(jq -r '.project.statuses // {} | .[]' "$CFG")
   # gh project field-list is owner-agnostic (works for both user- and org-owned boards)
   actual_opts=$(gh project field-list "$PROJ_NUM" --owner "$PROJ_OWNER" --format json \
     --jq '.fields[] | select(.name=="Status") | .options[].name' 2>/dev/null || echo "")
@@ -636,7 +642,7 @@ Org mode:      <ORG_MODE> (<OWNER_TYPE>)                     [detected]
 Created:
 - .claude/sillok/workflow.config.json                  [<CONFIG_STATUS>]
 - .claude/sillok/rules/* (refreshed on re-run)         [<RULES_STATUS>]
-- .claude/commands/sillok-{start,design,execute,end,story}.md  [<SHIM_STATUS>]
+- .claude/commands/sillok-{start,add,design,execute,end,story}.md  [<SHIM_STATUS>]
 - CLAUDE.md (appended Sillok import block)             [<CLAUDE_MD_STATUS>]
 - <SPEC_DIR>/ and <PLAN_DIR>/ (ensured)
 - Labels on <REPO>                                     [<LABELS_STATUS>]

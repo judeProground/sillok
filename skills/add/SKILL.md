@@ -54,12 +54,13 @@ issue_url=$(gh api -X POST \
   -f body="<body>" \
   -f type="<Issue-Type-name>" \
   -f "assignees[]=$(gh api user --jq .login)" \
-  -f "labels[]=<priority>" \
   -f "labels[]=<area-if-any>" \
   --jq '.html_url')
 ```
 
-User mode (`orgMode=false`): drop `-f type=` and add `-f "labels[]=<type-lowercased>"`.
+Org mode applies NO priority label — priority is set on the board's Priority field in Step 6.
+
+User mode (`orgMode=false`): drop `-f type=` and add `-f "labels[]=<type-lowercased>"` and `-f "labels[]=<priority>"` — the p-label is the priority record there.
 
 Capture `<N>` from the URL's last segment.
 
@@ -67,7 +68,7 @@ Capture `<N>` from the URL's last segment.
 
 Same GraphQL `addSubIssue` mutation as `sillok:start` Step 8 (skip label verification for cross-repo parents).
 
-## Step 6: Board — add + status Backlog (fail-soft)
+## Step 6: Board — add + status Backlog + priority (fail-soft)
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/project.sh"
@@ -75,10 +76,19 @@ ITEM_ID=$(sillok_project_item_add "$issue_url") || ITEM_ID=""
 if [[ -n "$ITEM_ID" ]]; then
   sillok_project_status_set "$ITEM_ID" backlog \
     || echo "[sillok] could not set Backlog status — the issue is created and on the board; add a 'Backlog' option to the board's Status field to enable backlog parking"
+
+  # Org mode only: priority lives on the board's Priority field (no p-label was
+  # applied in Step 4). <priority-key> = the confirmed priority from Step 3
+  # (default: p3). User mode skips this — the p-label from Step 4 is the
+  # priority record there.
+  if [[ "$(sillok_config orgMode)" == "true" ]]; then
+    sillok_project_priority_set "$ITEM_ID" "<priority-key>" \
+      || echo "[sillok] priority not set — re-run /sillok-init to create/map the board's Priority field" >&2
+  fi
 fi
 ```
 
-Status failure is NON-FATAL: the issue exists either way. Never roll back issue creation over a board error.
+Status and priority failures are NON-FATAL: the issue exists either way — surface the warning and continue (a board initialized before the org-mode priority split has no Priority field until `/sillok-init` is re-run). Never roll back issue creation over a board error. Recording board priority here matters because adopt mode (`/sillok-start <N>`) KEEPs whatever board Priority the item already has — backlog capture is the only point where it gets set.
 
 ## Step 7: Output
 
