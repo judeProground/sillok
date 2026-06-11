@@ -41,6 +41,7 @@ Lifecycle stage lives in the project's Status single-select field. The five cano
 
 | Status        | Meaning                                       | Written by                       |
 | ------------- | --------------------------------------------- | -------------------------------- |
+| `Backlog`     | Pre-sprint capture; promote via `/sillok-start <N>` (adopt) | `/sillok-add` (+ auto-add WF) |
 | `Todo`        | Issue created, ready to start                 | `/sillok-start` (+ auto-add WF)  |
 | `In Design`   | Spec exists at `docs/superpowers/specs/...`   | `/sillok-design`                 |
 | `In Progress` | Plan exists, work started                     | `/sillok-execute`                |

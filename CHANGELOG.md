@@ -6,6 +6,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- `/sillok-add` — lightweight backlog capture: issue + self-assign + board status `Backlog`, no branch/worktree/milestone (#33)
+- `/sillok-start <N>` adopt mode — pick up an existing issue with full environment setup, assignee/milestone backfill, and a soft gate on active statuses (#33)
+- `backlog` logical status in `project.statuses` (schema + template; existing consumer configs pick it up via per-key fallback or `/sillok-init` re-run) (#33)
+
 ## [3.0.0] — 2026-06-11
 
 Major release: the skill-wrapper refactor (story #15). Commands are now thin pointers; the substantive workflow lives in skills, with a new orchestrator, an automation mode, and a SessionStart hook. **No breaking changes for consumers** — all `/sillok-*` commands and existing shims keep working unchanged; the major bump reflects the architecture shift and the new auto-trigger surface.

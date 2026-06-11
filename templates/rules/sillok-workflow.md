@@ -5,7 +5,8 @@ GitHub-Issue-driven feature pipeline. Always use these slash commands instead of
 ## Pipeline (per feature)
 
 ```
-/sillok-start   → creates GH issue + branch + worktree (cut from origin/main)
+/sillok-add     → captures backlog issue — no branch/worktree; status Backlog (promote via /sillok-start <N>)
+/sillok-start   → creates GH issue + branch + worktree (cut from origin/main); or adopts existing issue <N> (Backlog→Todo)
 /sillok-design  → brainstorms + writes spec, pastes content into issue body, status Todo→In Design
 /sillok-execute → writes plan, dispatches subagents per task with verify-gate, status In Design→In Progress
 /sillok-end     → opens PR, status In Progress→In QA, done-note in PR body
@@ -31,7 +32,9 @@ The shim files carry a `sillok-shim: true` frontmatter marker so re-running `/si
 
 | Situation | Command |
 |-----------|---------|
-| New idea (with or without PRD) | `/sillok-start` |
+| Capture an idea for later (no branch needed) | `/sillok-add` |
+| New idea, start now (with or without PRD) | `/sillok-start` |
+| Pick up a backlog issue | `/sillok-start <N>` (adopt) |
 | Spec needs writing for the active issue | `/sillok-design` |
 | Spec is locked, ready to implement | `/sillok-execute` |
 | Implementation done, want a PR | `/sillok-end` |
@@ -51,7 +54,7 @@ Every `/sillok-start` creates `.worktrees/<N>-<slug>` and bases the branch on th
 
 ## Don't bypass
 
-- Don't `gh issue create` directly — use `/sillok-start` so labels, milestone, parent linking, and worktree all happen together.
+- Don't `gh issue create` directly — use `/sillok-start` (for immediate work) or `/sillok-add` (for backlog capture) so labels, milestone, and project status are set consistently.
 - Don't manually change project status — let the commands do it.
 - Don't open PRs via `gh pr create` — use `/sillok-end` so the body uses the convention and `Closes #N` auto-closes on merge.
 
