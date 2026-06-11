@@ -6,6 +6,27 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.0.0] — 2026-06-11
+
+Major release: the skill-wrapper refactor (story #15). Commands are now thin pointers; the substantive workflow lives in skills, with a new orchestrator, an automation mode, and a SessionStart hook. **No breaking changes for consumers** — all `/sillok-*` commands and existing shims keep working unchanged; the major bump reflects the architecture shift and the new auto-trigger surface.
+
+> **Requires a recent Claude Code client** (developed and tested on 2.1.x). The plugin now relies on `${CLAUDE_PLUGIN_ROOT}` substitution inside SKILL.md content, the `user-invocable` skill frontmatter field, and automatic plugin-hook discovery (`hooks/hooks.json`). Upgrade Claude Code before upgrading sillok.
+
+> **Upgrading consumer projects: re-run `/sillok-init` after updating** to refresh `.claude/sillok/rules/{sillok-workflow,pr-convention}.md`, which previously documented the dead `/sillok-epic` model and now describe stories and the orchestrator. The SessionStart hook itself ships with the plugin and needs no re-init; the `automation` config key is deep-merged into your config on re-init (absent key == propose mode, so skipping re-init is safe too).
+
+### Changed
+- **All six commands refactored into skill packages (#15, #55–#58).** Each `commands/sillok-*.md` is now a ≤15-line version-stable pointer wrapper; the procedure bodies moved to `skills/{start,design,execute,end,story,init}/SKILL.md` with subfiles for bulky templates (`issue-body-template.md`, `story-mode.md`, `pr-body-templates.md`). Behavior equivalence was the migration bar — step-mapping diffs against the originals were reviewed per batch. Hard contracts, lint-enforced by three new tests: `${CLAUDE_PLUGIN_ROOT}` script invocations live in SKILL.md bodies only; wrappers never use `$ARGUMENTS`; each wrapper invokes its matching stage skill.
+- **Stage skills carry deferral-marker descriptions** (`Internal sillok stage skill — enter via the /sillok-<stage> command or a sillok:workflow handoff`) and `user-invocable: false`, making the orchestrator the single auto-fire entry point.
+
+### Added
+- **`sillok:workflow` orchestrator skill (#55).** Owns the stage transition map (start → design → execute → end; story loop with a concrete sub-issue landed-check), reads the automation mode, and routes natural-language intent to the right stage. Propose mode confirms at chain entry and every stage boundary; failures always demote to propose mode.
+- **`automation.fullAuto` config key.** Default `false` (absent == propose). When `true`, the chain runs without typed commands or mid-chain prompts — stage-internal confirmations are auto-resolved and every judgment is recorded in the issue's `## Key decisions`; the chain stops after PR creation and never merges; `end`'s dirty-tree/existing-PR prompts demote instead of bulldozing; verify-gate is never skipped.
+- **SessionStart hook.** Injects a compact sillok context block (automation mode, branch ↔ issue) in sillok-configured projects. Hard contract: always exits 0, fully silent outside sillok projects and on any error, no network or `gh` calls. Ships with the plugin — no re-init needed.
+- **Story integration branches are a sanctioned `--parent` start point**: `precompute-start.sh` no longer aborts on `story/issue-N-*` branches (emits a `STORY-BRANCH` proceed signal instead).
+
+### Fixed
+- Consumer rule templates (`sillok-workflow.md`, `pr-convention.md`) modernized from the dead v1 `/sillok-epic` + `epic/issue-*` vocabulary to the story model; README's stale "zero-prompt init" and rank-threshold area-detection claims replaced with the actual at-most-two-questions hybrid flow.
+
 ## [2.4.1] — 2026-06-10
 
 Patch release: four bug fixes found while dogfooding v2.4.0 (story #46).
