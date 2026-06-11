@@ -224,6 +224,11 @@ sillok_project_status_set() {
   field_id=$(sillok_project_field_id "$field_name")
   option_id=$(sillok_project_option_id "$field_name" "$option_name")
 
+  if [[ -n "$project_id" && -n "$field_id" && -z "$option_id" ]]; then
+    echo "[sillok] status option '$option_name' not found on the board's '$field_name' field — add it in the project's field settings (Settings → Fields → $field_name)" >&2
+    return 1
+  fi
+
   if [[ -z "$item_id" || -z "$project_id" || -z "$field_id" || -z "$option_id" ]]; then
     echo "[sillok] could not resolve item_id=$item_id project_id=$project_id field_id=$field_id option_id=$option_id" >&2
     return 1
