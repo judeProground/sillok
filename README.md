@@ -6,7 +6,7 @@
 
 A GitHub issue is the canonical record of one feature. Its body holds the spec inline (so anyone can read it on GitHub without checking out the repo). A linked plan, a branch on a worktree, a series of commits, and finally a PR — every artifact threads back to that one issue. The issue's card on a Projects v2 board flips through `Todo → In Design → In Progress → In QA → Done` as the work moves.
 
-The plugin is built around five workflow commands plus one bootstrap command. They preserve a proven pipeline structure (issue creation, design brainstorming with spec inlining, plan generation with subagent-driven execution, end-of-plan whole-branch verification, PR creation) and connect them through a single per-project configuration file.
+The plugin is built around six workflow commands — `/sillok-add` for backlog capture and the `start`/`design`/`execute`/`end`/`story` feature pipeline — plus one bootstrap command (`/sillok-init`). They preserve a proven pipeline structure (issue creation, design brainstorming with spec inlining, plan generation with subagent-driven execution, end-of-plan whole-branch verification, PR creation) and connect them through a single per-project configuration file.
 
 **Architecture:** each command is a thin pointer wrapper over a per-stage skill (`skills/<stage>/SKILL.md` holds the actual procedure), and a `sillok:workflow` orchestrator skill owns the stage chain — it proposes the next stage by default, or runs the whole start → design → execute → end chain unprompted (stopping after PR creation, never merging) when `automation.fullAuto: true` is set in `workflow.config.json`. A SessionStart hook injects a small sillok context block in configured projects.
 

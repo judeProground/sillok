@@ -37,7 +37,10 @@ case "$args" in
     [[ "${GH_STUB_BOARD:-}" == "1" ]] && { echo "PVTI_item1"; exit 0; }
     exit 1 ;;
   *fieldValueByName*)
-    [[ "${GH_STUB_BOARD:-}" == "1" ]] && { echo "In Progress"; exit 0; }
+    if [[ "${GH_STUB_BOARD:-}" == "1" ]]; then
+      echo "${GH_STUB_STATUS:-In Progress}"
+      exit 0
+    fi
     exit 1 ;;
 esac
 exit 1
@@ -131,6 +134,14 @@ echo "$out" | grep -q "In Progress" || fail "expected current status in warn, go
 echo "$out" | grep -q -- '- Parent: #5' || fail "expected parent line, got: $out"
 unset GH_STUB_BOARD
 pass "#92 In Progress → ADOPT-WARN with parent line"
+
+echo "test: Done board status → ADOPT-WARN (not OK)"
+export GH_STUB_BOARD=1 GH_STUB_STATUS="Done"
+out=$(bash "$REPO_ROOT/scripts/precompute-start.sh" 92)
+echo "$out" | grep -q "ADOPT-WARN" || fail "expected ADOPT-WARN for Done status, got: $out"
+echo "$out" | grep -q "'Done'" || fail "expected Done quoted in warn, got: $out"
+unset GH_STUB_BOARD GH_STUB_STATUS
+pass "#92 Done → ADOPT-WARN"
 
 echo
 echo "All precompute-start adopt tests passed."

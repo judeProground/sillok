@@ -2,7 +2,7 @@
 # Lint: stage-skill SKILL.md frontmatter contract (story #15, sub-issue #56).
 #
 # Stage skills (start/add/design/execute/end/story/init) must:
-#   - exist (all six landed with story #15 — absence is a hard failure)
+#   - exist (six landed with story #15, `add` with #33 — absence is a hard failure)
 #   - have `name:` matching their directory name
 #   - declare `user-invocable: false` (single auto-fire entry point — design decision 8)
 #   - have a NEUTRAL description that does NOT start with "Use when"
