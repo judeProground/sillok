@@ -80,7 +80,7 @@ Lifecycle stage lives in the project's Status single-select field, not on the is
 
 Sillok writes status via GraphQL `updateProjectV2ItemFieldValue`. The exact option names are configurable per project in `workflow.config.json` under `project.statuses`.
 
-**Priority** (one label per issue; default `p3`): `p1` urgent | `p2` high | `p3` normal | `p4` low.
+**Priority** (default key `p3`, from `labels.defaults.priority`): four sillok levels — `p1` urgent | `p2` high | `p3` normal | `p4` low. Storage splits on `orgMode`: **user repos** carry one `p1`–`p4` label per issue; **org repos** carry NO p-label — priority lives in the project's Priority single-select field (`project.priorityField`), with `project.priorities` mapping the p-keys to the board's option names. Set via `sillok_project_priority_set <item-id> <p-key>` by `/sillok-start` and `/sillok-story`; the field itself is ensured (created when missing) by `/sillok-init`.
 
 ### Nature (optional cross-cutting labels)
 
@@ -181,7 +181,7 @@ Each flow has the same shape: When → Steps → Done state.
 
 1. Read the PRD (use main agent's Read tool — no JSON intermediate).
 2. Draft issue title (verb-form, derived from PRD title; rewrite noun-phrases to verb-form).
-3. Create issue via REST with `type=Feature` (or appropriate Type), optional nature labels, default priority `p3`. The project workflow sets Status to `Todo` on add.
+3. Create issue via REST with `type=Feature` (or appropriate Type), optional nature labels, default priority `p3` (user repos: `p3` label; org repos: board Priority field after the project add). The project workflow sets Status to `Todo` on add.
 4. Link to current sprint milestone if active.
 5. Optional: create branch `${BRANCH_PREFIX}<N>-<slug>` and open a worktree. `/sillok-start` registers the linked branch via `createLinkedBranch`.
 
@@ -225,7 +225,7 @@ Each flow has the same shape: When → Steps → Done state.
 **When:** Starting a new sprint or adjusting mid-sprint.
 
 1. List candidates by querying the project's Status field (`Todo` items + un-prioritized inbox). The `gh project item-list` command surfaces status; pure-label queries no longer work in v2.
-2. Prioritize via priority labels (`p1`/`p2`/`p3`/`p4`).
+2. Prioritize per the priority split: `p1`–`p4` labels on user repos, the board's Priority field (`sillok_project_priority_set`) on org repos.
 3. Pull selected into the sprint: `gh issue edit N --milestone "<YYYY-MM-Wn>"`.
 4. For re-scheduled items from a previous sprint, change milestone with the same command.
 
@@ -235,7 +235,7 @@ Each flow has the same shape: When → Steps → Done state.
 
 1. Query project items with Status unset (or with a `Backlog` extension status if configured under `project.statuses`).
 2. Close stale (>3 months untouched, no longer relevant): `gh issue close N --reason "not planned" --comment "Stale; closing during triage."`.
-3. Re-prioritize survivors with priority labels.
+3. Re-prioritize survivors (priority labels on user repos; the board's Priority field on org repos).
 4. Promote ready items: set Status to `Todo` via `sillok_project_status_set`.
 
 ### 8. Mid-Session Discovery
@@ -287,11 +287,10 @@ Steps:
      -H "X-GitHub-Api-Version: 2026-03-10" \
      -f title="Add recording export end-to-end" \
      -f type=Story \
-     -f labels[]=p2 \
      -f body="Tracking issue for recording-export feature spanning backend/frontend/native/analytics. Sub-issues to follow."
    ```
 
-   Returns issue #100. Project workflow assigns Status `Todo`.
+   Returns issue #100. Project workflow assigns Status `Todo`. This is an org repo (`type=` works), so NO `p*` label — set the urgency on the board instead, after the item is on the project: `sillok_project_priority_set <item-id> p2`.
 
 2. Create child issues. Use heredoc for the body so newlines are real (bash double-quotes do NOT interpret `\n` — a literal `\n` would land in the rendered issue body):
 
@@ -300,7 +299,6 @@ Steps:
      -H "X-GitHub-Api-Version: 2026-03-10" \
      -f title="Add /v1/exports endpoint" \
      -f type=Feature \
-     -f labels[]=p2 \
      -f body="$(cat <<'EOF'
    Parent: #100
 
