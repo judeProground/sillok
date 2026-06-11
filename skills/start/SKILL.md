@@ -92,7 +92,7 @@ Print:
 
 - Title: `<title>`
 - Type label: `<type>` (default `feature`)
-- Priority: `p3` (default)
+- Priority: `<priority>` — default is the `labels.defaults.priority` config key (ships as `p3`)
 - Parent: `#<M>` if any, else "standalone"
 - Milestone: `<computed>` if captured, else "none"
 
@@ -117,7 +117,6 @@ issue_url=$(gh api -X POST \
   -f body="<body>" \
   -f type="<Issue-Type-name>" \
   -f "assignees[]=$(gh api user --jq .login)" \
-  -f "labels[]=<priority>" \
   -f "labels[]=<area-if-any>" \
   --jq '.html_url')
 ```
@@ -137,7 +136,7 @@ issue_url=$(gh api -X POST \
   --jq '.html_url')
 ```
 
-(Difference: org mode has `-f type=X`, user mode has `-f labels[]=x` instead.)
+(Differences: org mode has `-f type=X` and NO priority label — priority is set on the board's Priority field in Step 10c; user mode has `-f labels[]=<type-lowercased>` and `-f labels[]=<priority>` instead.)
 
 Capture `<N>` by parsing the URL's last segment.
 
@@ -242,7 +241,7 @@ sillok_link_branch "$ISSUE_NODE_ID" "<branch>" "$BRANCH_SHA"
 (cd "$worktree_path" && git push -u origin "<branch>")
 ```
 
-## Step 10c: Add to project + set status Todo
+## Step 10c: Add to project + set status Todo + set priority (org mode)
 
 Idempotent — works whether the auto-add workflow has already fired or not.
 
@@ -250,6 +249,14 @@ Idempotent — works whether the auto-add workflow has already fired or not.
 source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/project.sh"
 ITEM_ID=$(sillok_project_item_add "$issue_url")
 sillok_project_status_set "$ITEM_ID" todo
+
+# Org mode only: priority lives on the board's Priority field (no p-label was
+# applied in Step 7). <priority-key> = the confirmed priority from Step 6
+# (default: the labels.defaults.priority config key). User mode skips this —
+# the p-label from Step 7 is the priority record there.
+if [[ "$(sillok_config orgMode)" == "true" ]]; then
+  sillok_project_priority_set "$ITEM_ID" "<priority-key>"
+fi
 ```
 
 ## Step 11: Output
@@ -261,6 +268,7 @@ Print:
 - Worktree: `.worktrees/<slug>` — the next stage runs from there
 - Project item: `<ITEM_ID>`
 - Status: `Todo`
+- Priority: `<priority>` (org mode: board Priority field; user mode: `p*` label)
 - Linked branch: ✓
 
 ## Handoff
