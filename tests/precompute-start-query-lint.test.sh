@@ -31,9 +31,16 @@ pass "Epic query uses type:Epic"
 pass "both call sites use search(query: ...)"
 
 # 3. Failures must be visible — graceful degradation with a stderr warning.
+# The warning must go to stderr: precompute stdout is a markdown contract.
 grep -F 'open-epics query failed' "$SCRIPT" >/dev/null \
   || fail "missing stderr warning on open-epics query failure (silent masking is how #41 shipped unnoticed)"
-pass "stderr warning present on query failure"
+while IFS= read -r warn_line; do
+  case "$warn_line" in
+    *'>&2'*) : ;;
+    *) fail "open-epics warning must be redirected to stderr (>&2) — stdout is markdown-only: $warn_line" ;;
+  esac
+done < <(grep -F 'open-epics query failed' "$SCRIPT")
+pass "stderr warning present on query failure (and redirected with >&2)"
 
 echo
 echo "All precompute-start query lint checks passed."
