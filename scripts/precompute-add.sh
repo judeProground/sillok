@@ -34,35 +34,29 @@ echo "- Current branch: \`$branch\` (no guard — capture is allowed from any br
 echo
 echo "### Open epics"
 
-# Local-repo stories/epics (for parent suggestion).
-# orgMode=true: query by Issue Type via Search API. orgMode=false: query by label fallback.
 ORG_MODE=$(sillok_config orgMode)
 if [[ "$ORG_MODE" == "true" ]]; then
-  local_stories=$(gh api graphql \
-    -f query="{ search(query: \"repo:$REPO is:issue is:open type:Story\", type: ISSUE, first: 20) {
-      nodes { ... on Issue { number title } }
-    } }" --jq '.data.search.nodes[]? | "  - (in this repo) #\(.number) [Story] \(.title)"' 2>/dev/null) || {
-    echo "[precompute-add] open-epics query failed (type:Story, repo $REPO) — continuing with empty list" >&2
-    local_stories=""
-  }
+  local_stories=$(gh api graphql -H "X-GitHub-Api-Version: 2026-03-10" \
+    -f query="{ repository(owner: \"${REPO%%/*}\", name: \"${REPO##*/}\") {
+      issues(first: 20, states: OPEN, filterBy: {issueType: \"Story\"}) {
+        nodes { number title }
+      }
+    } }" --jq '.data.repository.issues.nodes[]? | "  - (in this repo) #\(.number) [Story] \(.title)"' 2>/dev/null || echo "")
 else
-  # User repo: Issue Types unavailable. Fall back to label-based query.
   local_stories=$(gh issue list --repo "$REPO" --label story --state open --limit 20 --json number,title \
     --jq '.[]? | "  - (in this repo) #\(.number) [story] \(.title)"' 2>/dev/null || echo "")
 fi
 
-# Cross-repo PRD epics from prdRepo, if configured.
 PRD_REPO=$(sillok_config prdRepo)
 prd_epics=""
 if [[ -n "$PRD_REPO" ]]; then
   if [[ "$ORG_MODE" == "true" ]]; then
-    prd_epics=$(gh api graphql \
-      -f query="{ search(query: \"repo:$PRD_REPO is:issue is:open type:Epic\", type: ISSUE, first: 20) {
-        nodes { ... on Issue { number title } }
-      } }" --jq ".data.search.nodes[]? | \"  - (in $PRD_REPO) #\(.number) [Epic] \(.title)\"" 2>/dev/null) || {
-      echo "[precompute-add] open-epics query failed (type:Epic, repo $PRD_REPO) — continuing with empty list" >&2
-      prd_epics=""
-    }
+    prd_epics=$(gh api graphql -H "X-GitHub-Api-Version: 2026-03-10" \
+      -f query="{ repository(owner: \"${PRD_REPO%%/*}\", name: \"${PRD_REPO##*/}\") {
+        issues(first: 20, states: OPEN, filterBy: {issueType: \"Epic\"}) {
+          nodes { number title }
+        }
+      } }" --jq ".data.repository.issues.nodes[]? | \"  - (in $PRD_REPO) #\(.number) [Epic] \(.title)\"" 2>/dev/null || echo "")
   else
     prd_epics=$(gh issue list --repo "$PRD_REPO" --label epic --state open --limit 20 --json number,title \
       --jq ".[]? | \"  - (in $PRD_REPO) #\(.number) [epic] \(.title)\"" 2>/dev/null || echo "")
