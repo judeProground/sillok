@@ -502,6 +502,7 @@ On org repos, priority lives on the board's Priority single-select field (`proje
      PRIORITY_FIELD=$(jq -r '.project.priorityField // "Priority"' "$CFG")
      pri_fields_json=$(gh project field-list "$PROJ_NUM" --owner "$PROJ_OWNER" --format json 2>/dev/null || echo '{"fields":[]}')
      pri_field_exists=$(echo "$pri_fields_json" | jq -r --arg f "$PRIORITY_FIELD" '[.fields[] | select(.name==$f)] | length')
+     pri_field_type=$(echo "$pri_fields_json" | jq -r --arg f "$PRIORITY_FIELD" '.fields[] | select(.name==$f) | .type // ""')
      actual_pri_opts=$(echo "$pri_fields_json" | jq -r --arg f "$PRIORITY_FIELD" '.fields[] | select(.name==$f) | .options[]?.name')
    fi
    ```
@@ -523,22 +524,40 @@ On org repos, priority lives on the board's Priority single-select field (`proje
 
    When the field was absent, **Step 9c is done — skip steps 3–4.**
 
-3. **Field exists → compare its options against the config mapping values:**
+3. **Field exists → verify it's actually a single-select with options, then compare against the config mapping.** A name match alone is not enough — a text/number field named "Priority", or a single-select with zero options, can never hold a priority (`gh project field-list` exposes `.type`; require `ProjectV2SingleSelectField`):
+
+   ```bash
+   if [[ "$pri_field_type" != "ProjectV2SingleSelectField" || -z "$actual_pri_opts" ]]; then
+     PRIORITY_STATUS=fail
+     echo "[sillok-init] field '$PRIORITY_FIELD' exists but is not a single-select (or has no options) — rename/delete it or point project.priorityField elsewhere"
+   fi
+   ```
+
+   When this gate fails, **Step 9c is done — skip step 4.** (`sillok_project_priority_field_ensure` itself stays a simple name check — this init gate is where field type and options are verified.)
+
+   Otherwise compare the board's options against the config mapping values. Zero non-empty mapped values is a `fail`, not `ok` — an all-empty mapping can never set any priority:
 
    ```bash
    pri_mismatch=0
+   pri_mapped=0
    for key in p1 p2 p3 p4; do
      want=$(jq -r ".project.priorities.$key // \"\"" "$CFG")
-     if [[ -n "$want" ]] && ! echo "$actual_pri_opts" | grep -qxF "$want"; then
-       pri_mismatch=1
+     if [[ -n "$want" ]]; then
+       pri_mapped=$((pri_mapped + 1))
+       if ! echo "$actual_pri_opts" | grep -qxF "$want"; then
+         pri_mismatch=1
+       fi
      fi
    done
-   if [[ "$pri_mismatch" == "0" ]]; then
+   if [[ "$pri_mapped" == "0" ]]; then
+     PRIORITY_STATUS=fail
+     echo "[sillok-init] project.priorities maps no option names — fill in p1–p4 in workflow.config.json (the schema requires all four)"
+   elif [[ "$pri_mismatch" == "0" ]]; then
      PRIORITY_STATUS=ok
    fi
    ```
 
-   All four mapped names present → `ok`; **Step 9c is done — skip step 4.** Nothing is asked and nothing changes (idempotent re-init).
+   All four mapped names present → `ok`; zero mapped names → `fail`; **in either case Step 9c is done — skip step 4.** On `ok` nothing is asked and nothing changes (idempotent re-init).
 
 4. **Genuine mismatch → propose the closest p1→p4 mapping (LLM judgment — you do this), confirm, persist.** Read `$actual_pri_opts` and map the board's options to sillok keys ordered most→least urgent (e.g. `P0/P1/P2` → p1=P0, p2=P1, p3=P2, p4=P2 — with fewer than four options the lowest keys share the least-urgent option; with more than four, pick the four clearest urgency levels).
 
