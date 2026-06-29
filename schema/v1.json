@@ -27,7 +27,7 @@
       "default": "auto",
       "description": "Language for generated issue/PR/spec body. 'auto' = match the session language. 'ko'/'en' = force that language."
     },
-    "prdRepo": {
+    "epicRepo": {
       "type": "string",
       "pattern": "^[^/]+/[^/]+$",
       "description": "Optional cross-repo PRD repository slug ('<owner>/<name>'). When set, /sillok-start auto-suggests open epics from this repo and accepts cross-repo parent linking."
@@ -67,11 +67,11 @@
             "done":     { "type": "string", "default": "Done" }
           }
         },
-        "priorityField": { "type": "string", "default": "Priority", "description": "Priority single-select field name on the project. Org mode only — user repos keep p1–p4 labels." },
+        "priorityField": { "type": "string", "default": "Priority", "description": "Org-level Priority *issue field* name (set on the issue via setIssueFieldValue, projected onto the board). Org mode only — user repos keep p1–p4 labels. init creates this org issue field when absent (API-only; not GUI-creatable)." },
         "priorities": {
           "type": "object",
           "required": ["p1", "p2", "p3", "p4"],
-          "description": "Maps sillok priority keys (p1–p4) to the board's Priority field option names. Absorbs naming differences when the field already exists with different option names.",
+          "description": "Maps sillok priority keys (p1–p4) to the org Priority issue field's option names. init creates the org field with exactly these option names; for a pre-existing org field, set these to match its options.",
           "properties": {
             "p1": { "type": "string", "default": "Urgent" },
             "p2": { "type": "string", "default": "High" },
@@ -95,7 +95,7 @@
           "properties": {
             "feature":   { "type": "string", "default": "Feature" },
             "composite": { "type": "string", "default": "Story" },
-            "prd":       { "type": "string", "default": "Epic" }
+            "epic":       { "type": "string", "default": "Epic" }
           }
         }
       },

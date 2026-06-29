@@ -43,6 +43,28 @@ if ! jq empty "$template" 2>/dev/null; then
   exit 1
 fi
 
+# Rename legacy keys BEFORE merging, so the deep-merge doesn't leave the old key
+# orphaned beside an empty new one from the template. Idempotent: each rename runs
+# only when the new key is absent, so it never clobbers an existing value and a
+# re-run is a no-op.  prdRepo -> epicRepo and types.defaults.prd -> types.defaults.epic
+# (the /sillok-prd -> /sillok-epic rename, 3.0.x -> 3.1.0). The obsolete prdDir/epicDir
+# key is dropped — the epic path is now <category>/<project>/prd.md, not a flat dir.
+if ! renamed=$(jq '
+    (if has("prdRepo") and (has("epicRepo") | not) then .epicRepo = .prdRepo else . end) | del(.prdRepo)
+  | del(.prdDir) | del(.epicDir)
+  | (if (.types.defaults? // {} | has("prd")) and ((.types.defaults? // {} | has("epic")) | not)
+       then .types.defaults.epic = .types.defaults.prd else . end)
+  | (if .types.defaults? then .types.defaults |= del(.prd) else . end)
+  ' "$project"); then
+  echo "[sillok-init] migrate-config: legacy-key rename failed (jq error)" >&2
+  exit 1
+fi
+if [[ "$(printf '%s' "$renamed" | jq -S .)" != "$(jq -S . "$project")" ]]; then
+  rtmp=$(mktemp "${project}.tmp.XXXXXX")
+  printf '%s\n' "$renamed" > "$rtmp"
+  mv "$rtmp" "$project"
+fi
+
 # Deep-merge: template * project (project wins; arrays replaced wholesale).
 # Explicit failure check — a bare `x=$(cmd)` assignment does not trip set -e.
 if ! merged=$(jq -s '.[0] * .[1]' "$template" "$project"); then

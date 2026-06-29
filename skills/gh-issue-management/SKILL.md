@@ -1,6 +1,6 @@
 ---
 name: gh-issue-management
-description: Use when creating, updating, closing, triaging, or linking GitHub issues in your project. Covers issue title and body conventions, GitHub Issue Types (Epic/Story/Feature/Task/Bug), Projects v2 Status field for stage, priority (labels on user repos / board Priority field on org repos) + nature labels, milestone naming, cross-repo sub-issue parent-child linking via GraphQL, linked-branch registration, and the eight management flows (new feature, pick up existing, quick fix, new project, search and dedup, sprint planning, triage backlog, mid-session discovery).
+description: Use when creating, updating, closing, triaging, or linking GitHub issues in your project. Covers issue title and body conventions, GitHub Issue Types (Epic/Story/Feature/Task/Bug), Projects v2 Status field for stage, priority (labels on user repos / board Priority field on org repos) + nature labels, milestone naming, cross-repo sub-issue parent-child linking via GraphQL, linked-branch registration, and the eight issue-management flows (creation, triage, sprint planning, linking).
 ---
 
 # Sillok GH Issue Management
@@ -81,7 +81,7 @@ Lifecycle stage lives in the project's Status single-select field, not on the is
 
 Sillok writes status via GraphQL `updateProjectV2ItemFieldValue`. The exact option names are configurable per project in `workflow.config.json` under `project.statuses`.
 
-**Priority** (default key `p3`, from `labels.defaults.priority`): four sillok levels — `p1` urgent | `p2` high | `p3` normal | `p4` low. Storage splits on `orgMode`: **user repos** carry one `p1`–`p4` label per issue; **org repos** carry NO p-label — priority lives in the project's Priority single-select field (`project.priorityField`), with `project.priorities` mapping the p-keys to the board's option names. Set via `sillok_project_priority_set <item-id> <p-key>` by `/sillok-start` and `/sillok-story`; the field itself is ensured (created when missing) by `/sillok-init`.
+**Priority** (default key `p3`, from `labels.defaults.priority`): four sillok levels — `p1` urgent | `p2` high | `p3` normal | `p4` low. Storage splits on `orgMode`: **user repos** carry one `p1`–`p4` label per issue; **org repos** carry NO p-label — priority lives on the org-level Priority *issue field* (`project.priorityField`, set on the issue and projected onto the board), with `project.priorities` mapping the p-keys to the org field's option names. Set via `sillok_issue_priority_set <issue-url> <p-key>` by `/sillok-start` and `/sillok-story`; the org issue field itself is ensured (created when missing — it is API-only, not GUI-creatable) by `/sillok-init`.
 
 ### Nature (optional cross-cutting labels)
 
@@ -125,7 +125,7 @@ gh api graphql -f query="mutation { addSubIssue(input: { issueId: \"$PARENT_ID\"
 **Cross-repo example** (parent in PRD repo, child in code repo — same org):
 
 ```bash
-PARENT_ID=$(gh api graphql -f query='query { repository(owner:"myorg", name:"prd") { issue(number:42) { id } } }' --jq '.data.repository.issue.id')
+PARENT_ID=$(gh api graphql -f query='query { repository(owner:"myorg", name:"projects") { issue(number:42) { id } } }' --jq '.data.repository.issue.id')
 CHILD_ID=$(gh api graphql -f query='query { repository(owner:"myorg", name:"frontend") { issue(number:101) { id } } }' --jq '.data.repository.issue.id')
 gh api graphql -f query="mutation { addSubIssue(input: { issueId: \"$PARENT_ID\", subIssueId: \"$CHILD_ID\" }) { issue { number } } }"
 ```
@@ -225,7 +225,7 @@ Each flow has the same shape: When → Steps → Done state.
 **When:** Starting a new sprint or adjusting mid-sprint.
 
 1. List candidates by querying the project's Status field (`Todo` items + un-prioritized inbox). The `gh project item-list` command surfaces status; pure-label queries no longer work in v2.
-2. Prioritize per the priority split: `p1`–`p4` labels on user repos, the board's Priority field (`sillok_project_priority_set`) on org repos.
+2. Prioritize per the priority split: `p1`–`p4` labels on user repos, the org Priority issue field (`sillok_issue_priority_set`) on org repos.
 3. Pull selected into the sprint: `gh issue edit N --milestone "<YYYY-MM-Wn>"`.
 4. For re-scheduled items from a previous sprint, change milestone with the same command.
 
@@ -290,7 +290,7 @@ Steps:
      -f body="Tracking issue for recording-export feature spanning backend/frontend/native/analytics. Sub-issues to follow."
    ```
 
-   Returns issue #100. Project workflow assigns Status `Todo`. This is an org repo (`type=` works), so NO `p*` label — set the urgency on the board instead, after the item is on the project: `sillok_project_priority_set <item-id> p2`.
+   Returns issue #100. Project workflow assigns Status `Todo`. This is an org repo (`type=` works), so NO `p*` label — set the urgency on the org Priority issue field instead (it lands on the issue and projects onto the board): `sillok_issue_priority_set <issue-url> p2`.
 
 2. Create child issues. Use heredoc for the body so newlines are real (bash double-quotes do NOT interpret `\n` — a literal `\n` would land in the rendered issue body):
 

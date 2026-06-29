@@ -8,7 +8,8 @@
 
   "language": "auto",
 
-  "prdRepo": "",
+  "epicRepo": "",
+
 
   "orgMode": false,
 
@@ -42,7 +43,7 @@
     "defaults": {
       "feature":   "Feature",
       "composite": "Story",
-      "prd":       "Epic"
+      "epic":       "Epic"
     }
   },
 

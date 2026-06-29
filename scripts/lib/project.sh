@@ -294,34 +294,144 @@ sillok_project_status_set() {
   _sillok_project_single_select_set "$item_id" "$field_name" "$option_name" status
 }
 
-# Set priority for a project item (org mode — user repos keep p1–p4 labels).
-# Usage: sillok_project_priority_set <item-id> <priority-key>
-#   priority-key: one of p1, p2, p3, p4 — mapped to the board's option name
+# ---------------------------------------------------------------------------
+# org-mode priority — org-level Issue Fields, NOT regular project fields (#17)
+#
+# On real org boards the "Priority" column is an org Issue Field projected onto
+# the board. Read through the old Projects v2 API it looks like a regular
+# ProjectV2SingleSelectField but always reports options:[] and item values:null
+# (the definition + value live on the org / the issue), so updateProjectV2-
+# ItemFieldValue can never be constructed. The value is set on the ISSUE via
+# setIssueFieldValue instead, and discovered via organization.issueFields.
+# ---------------------------------------------------------------------------
+
+# Resolve an org single-select Issue Field's id AND a named option's id in one
+# query. Org login = the configured repo's owner. Prints "<field_id> <option_id>"
+# (option_id empty when the option — or the option-name arg — is absent; field
+# part empty when the field itself is absent). Returns 1 only on transport
+# error, so callers distinguish "field missing" (empty stdout, rc 0) from
+# "query failed" (rc 1).
+# Usage: sillok_org_issue_field_resolve <field-name> [option-name]
+sillok_org_issue_field_resolve() {
+  local field_name="$1"
+  local option_name="${2-}"
+
+  local org
+  org=$(sillok_config_required repo) || return 1
+  org="${org%%/*}"
+
+  local raw
+  raw=$(gh api graphql -f query="{
+    organization(login: \"$org\") {
+      issueFields(first: 50) {
+        nodes {
+          __typename
+          ... on IssueFieldSingleSelect { id name options { id name } }
+        }
+      }
+    }
+  }") || return 1
+
+  printf '%s' "$raw" | jq -r --arg f "$field_name" --arg o "$option_name" '
+    .data.organization.issueFields.nodes[]?
+    | select(.__typename == "IssueFieldSingleSelect" and .name == $f)
+    | .id as $fid
+    | ([.options[]? | select(.name == $o) | .id] | first // "") as $oid
+    | "\($fid) \($oid)"
+  ' 2>/dev/null | head -1
+}
+
+# Resolve an issue's GraphQL node id from owner/repo/number. Factored out so
+# tests can stub it (it is the only gh round-trip in the write path before the
+# id tripwire), keeping the "no gh call before refusing" guarantee testable.
+_sillok_issue_node_id() {
+  local owner="$1" repo="$2" number="$3"
+  gh api graphql -f query="{
+    repository(owner: \"$owner\", name: \"$repo\") { issue(number: $number) { id } }
+  }" --jq '.data.repository.issue.id'
+}
+
+# Set an issue's org-mode priority via setIssueFieldValue (org mode only — user
+# repos keep p1–p4 labels). Takes the issue URL (the issue node id is all the
+# write needs — no board item id lookup) and a priority key.
+# Usage: sillok_issue_priority_set <issue-url> <priority-key>
+#   priority-key: one of p1, p2, p3, p4 — mapped to the org field's option name
 #   via project.priorities.<key>; the field name comes from project.priorityField.
-sillok_project_priority_set() {
-  local item_id="$1"
+sillok_issue_priority_set() {
+  local issue_url="$1"
   local priority_key="$2"
+
+  # Early guard: an empty url can never succeed; refuse before any gh round-trip.
+  if [[ -z "$issue_url" ]]; then
+    echo "[sillok] empty issue url — cannot set priority" >&2
+    return 1
+  fi
 
   local field_name option_name
   field_name=$(sillok_config project.priorityField)
   option_name=$(sillok_config "project.priorities.$priority_key")
-
   if [[ -z "$option_name" ]]; then
     echo "[sillok] no project.priorities.$priority_key configured" >&2
     return 1
   fi
 
-  # The field-missing hint covers the v2.x → priority-field upgrade path:
-  # boards initialized before #66 have no Priority field until re-init.
-  _sillok_project_single_select_set "$item_id" "$field_name" "$option_name" priority \
-    "[sillok] Priority field '$field_name' not found on the project board — re-run /sillok-init to create it (org-mode priority moved off p-labels)"
+  # Parse https://github.com/<owner>/<repo>/issues/<N> via parameter expansion
+  # (BASH_REMATCH is empty under zsh; this is portable).
+  local rest owner repo issue_n
+  rest="${issue_url#*github.com/}"
+  owner="${rest%%/*}"
+  rest="${rest#*/}"
+  repo="${rest%%/*}"
+  issue_n="${issue_url##*/}"
+  if [[ -z "$owner" || -z "$repo" || -z "$issue_n" || "$issue_url" != *"/issues/"* ]]; then
+    echo "[sillok] cannot parse issue URL: $issue_url" >&2
+    return 1
+  fi
+
+  local issue_id
+  issue_id=$(_sillok_issue_node_id "$owner" "$repo" "$issue_n") || return 1
+
+  local resolved field_id option_id
+  resolved=$(sillok_org_issue_field_resolve "$field_name" "$option_name") || return 1
+  field_id="${resolved%% *}"
+  option_id="${resolved#* }"
+
+  if [[ -z "$field_id" ]]; then
+    echo "[sillok] org issue field '$field_name' not found — re-run /sillok-init to create the org Priority issue field" >&2
+    return 1
+  fi
+  if [[ -z "$option_id" ]]; then
+    echo "[sillok] priority option '$option_name' not found on org issue field '$field_name' — check the project.priorities mapping" >&2
+    return 1
+  fi
+
+  # Tripwire (#47): refuse to send a mutation if any id carries shell-noise (a
+  # resolver leaking debug text to stdout). Node/option ids are base64ish /
+  # prefixed hex — never whitespace or punctuation beyond _ = -.
+  local _id
+  for _id in "$issue_id" "$field_id" "$option_id"; do
+    case "$_id" in
+      *[![:alnum:]_=-]*)
+        echo "[sillok] malformed GraphQL id '$_id' — refusing to send mutation (a resolver leaked non-id output to stdout?)" >&2
+        return 1 ;;
+    esac
+  done
+
+  gh api graphql -f query="mutation {
+    setIssueFieldValue(input: {
+      issueId: \"$issue_id\",
+      issueFields: [{ fieldId: \"$field_id\", singleSelectOptionId: \"$option_id\" }]
+    }) { issue { number } }
+  }" --jq '.data.setIssueFieldValue.issue.number' >/dev/null
 }
 
-# Ensure the configured Priority single-select field exists on the board.
-# Present → return 0 silently. Absent → create it via createProjectV2Field
-# with options built from project.priorities in p1→p4 order (one stderr
-# notice). Returns non-zero only when creation fails (or config is unusable).
-sillok_project_priority_field_ensure() {
+# Ensure the org-level Priority Issue Field exists, then project it onto the
+# configured board. Org Priority issue fields cannot be created in the GitHub
+# GUI (preview, API-only), so init provisions one when absent.
+# Present → ensure projection, return 0. Absent → createIssueField (p1→p4
+# options from project.priorities), then project. Returns non-zero only when
+# creation fails (e.g. missing org-admin permission) or config is unusable.
+sillok_org_priority_field_ensure() {
   local field_name
   field_name=$(sillok_config project.priorityField)
   if [[ -z "$field_name" ]]; then
@@ -329,53 +439,99 @@ sillok_project_priority_field_ensure() {
     return 1
   fi
 
-  local field_id
-  field_id=$(sillok_project_field_id "$field_name") || return 1
-  if [[ -n "$field_id" ]]; then
+  local org
+  org=$(sillok_config_required repo) || return 1
+  org="${org%%/*}"
+
+  # Already exists? Discover via organization.issueFields (the field part of
+  # the resolve output; option arg omitted).
+  local resolved existing_id
+  resolved=$(sillok_org_issue_field_resolve "$field_name") || return 1
+  existing_id="${resolved%% *}"
+  if [[ -n "$existing_id" ]]; then
+    _sillok_org_field_project "$existing_id"
     return 0
   fi
 
-  local project_id
-  project_id=$(sillok_project_id) || return 1
-
-  # Build singleSelectOptions in p1→p4 order. The GraphQL input type
-  # (ProjectV2SingleSelectFieldOptionInput) requires name, color AND
-  # description per option — description is String! but may be empty.
-  # Locals declared ONCE above the loop (#65).
-  local options="" key option_name color
+  # Build options p1→p4. The org option input type
+  # (IssueFieldSingleSelectOptionInput) needs name, color (enum), priority
+  # (Int!) AND description — colors hardcoded by position to match the standard
+  # board (Urgent=PINK/High=RED/Medium=YELLOW/Low=GREEN). Locals declared ONCE
+  # above the loop (#65 zsh leak).
+  local options="" key option_name color pri=1
   for key in p1 p2 p3 p4; do
     option_name=$(sillok_config "project.priorities.$key")
     if [[ -n "$option_name" ]]; then
       case "$key" in
-        p1) color=RED ;;
-        p2) color=ORANGE ;;
+        p1) color=PINK ;;
+        p2) color=RED ;;
         p3) color=YELLOW ;;
-        *)  color=GRAY ;;
+        *)  color=GREEN ;;
       esac
-      options="${options:+$options, }{name: \"$option_name\", color: $color, description: \"\"}"
+      options="${options:+$options, }{name: \"$option_name\", color: $color, priority: $pri, description: \"\"}"
     fi
+    pri=$((pri + 1))
   done
-
   if [[ -z "$options" ]]; then
-    echo "[sillok] project.priorities has no option names configured — cannot create field '$field_name'" >&2
+    echo "[sillok] project.priorities has no option names configured — cannot create issue field '$field_name'" >&2
     return 1
   fi
 
-  echo "[sillok] creating single-select field '$field_name' on the project board (options from project.priorities, p1→p4)" >&2
-  gh api graphql -f query="mutation {
-    createProjectV2Field(input: {
-      projectId: \"$project_id\",
-      dataType: SINGLE_SELECT,
-      name: \"$field_name\",
-      singleSelectOptions: [$options]
-    }) { projectV2Field { ... on ProjectV2SingleSelectField { id } } }
-  }" --jq '.data.createProjectV2Field.projectV2Field.id' >/dev/null || return 1
+  local owner_id
+  owner_id=$(gh api graphql -f query="{ organization(login: \"$org\") { id } }" --jq '.data.organization.id') || return 1
+  if [[ -z "$owner_id" ]]; then
+    echo "[sillok] could not resolve org node id for '$org'" >&2
+    return 1
+  fi
 
-  # Defensive reset for hypothetical future same-shell callers. Today the
-  # field_id lookup above ran in a command-substitution subshell, so its cache
-  # write died with that subshell — this parent shell's cache is still empty
-  # and the reset is a no-op. It only matters if a future caller resolves
-  # field ids in this shell directly and would otherwise read a list cached
-  # before the field was created.
-  _SILLOK_FIELD_ID_CACHE=""
+  echo "[sillok] creating org issue field '$field_name' (single-select, options from project.priorities p1→p4)" >&2
+  local new_id
+  new_id=$(gh api graphql -f query="mutation {
+    createIssueField(input: {
+      ownerId: \"$owner_id\",
+      name: \"$field_name\",
+      dataType: SINGLE_SELECT,
+      options: [$options]
+    }) { issueField { ... on IssueFieldSingleSelect { id } } }
+  }" --jq '.data.createIssueField.issueField.id') || {
+    echo "[sillok] failed to create org issue field '$field_name' — an org owner must create it (org-admin permission required)" >&2
+    return 1
+  }
+  if [[ -z "$new_id" ]]; then
+    echo "[sillok] createIssueField returned no id for '$field_name'" >&2
+    return 1
+  fi
+
+  _sillok_org_field_project "$new_id"
+}
+
+# Project an org Issue Field onto the configured board so the board shows the
+# column (createProjectV2IssueField is API-only; not in the GUI). Non-fatal: a
+# same-named regular project field blocks projection ("Name has already been
+# taken") and an already-projected field re-errors — both are warnings.
+_sillok_org_field_project() {
+  local issue_field_id="$1"
+
+  local project_id
+  project_id=$(sillok_project_id) || {
+    echo "[sillok] could not resolve project board — skipping projection of issue field onto the board (non-fatal)" >&2
+    return 0
+  }
+
+  local err
+  if err=$(gh api graphql -f query="mutation {
+    createProjectV2IssueField(input: { projectId: \"$project_id\", issueFieldId: \"$issue_field_id\" }) {
+      projectV2Field { ... on ProjectV2SingleSelectField { id } }
+    }
+  }" 2>&1 >/dev/null); then
+    return 0
+  fi
+
+  case "$err" in
+    *"already"*)
+      echo "[sillok] Priority issue field is already projected onto the board (or a same-named project field blocks it) — skipping projection (this is fine)" >&2 ;;
+    *)
+      echo "[sillok] could not project Priority issue field onto the board (non-fatal): $err" >&2 ;;
+  esac
+  return 0
 }

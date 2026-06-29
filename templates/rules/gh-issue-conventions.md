@@ -65,9 +65,32 @@ Nature labels describe a property orthogonal to the Issue Type. Zero or more per
 
 A `Feature` typed issue can also carry `refactor`; a `Task` can also carry `infra`. Configured under `labels.natures` in `workflow.config.json`.
 
-## Priority Labels
+## Priority (org repos: board Priority field · user repos: p1–p4 labels)
 
-One per issue. Default `p3`:
+One per issue. Default `p3` (configured under `labels.defaults.priority`). The
+priority *mechanism* depends on `orgMode`, mirroring how Type (REST) and Stage
+(Projects v2 field) above document theirs.
+
+### Org repos (`orgMode: true`)
+
+Priority lives on the org-level **Priority issue field** (named per
+`project.priorityField`, default `Priority`) projected onto the project board —
+**not** a label. `/sillok-start` Step 10c sets it via `sillok_issue_priority_set`;
+the field itself is provisioned by `/sillok-init`. `p1`–`p4` map to the field's
+options via `project.priorities`:
+
+| Key  | Option (default) | Meaning          |
+| ---- | ---------------- | ---------------- |
+| `p1` | `Urgent`         | urgent           |
+| `p2` | `High`           | high             |
+| `p3` | `Medium`         | normal (default) |
+| `p4` | `Low`            | low              |
+
+No `p1`–`p4` labels are created or applied on org repos.
+
+### User repos (`orgMode: false`)
+
+Priority is a label, one per issue, applied at issue-create time.
 
 - `p1` urgent
 - `p2` high
@@ -110,7 +133,7 @@ Do **not** add `- [ ] #N` task-list syntax in the parent body — GitHub renders
 Parent-capable types vs atomic work units:
 
 1. **`Epic` parents live cross-repo.** A PRD authored in a dedicated PRD repo is the canonical `Epic`. Child issues in code repos reference the Epic via cross-repo `addSubIssue`. No code changes attach to an `Epic` directly.
-2. **`Story` parents live in-repo.** A `Story` has a `story/issue-<N>-<slug>` integration branch + worktree. Sub-features cut from and PR back to this integration branch; the `Story` PR then `--merge`s to base (preserving sub-feature commits), not `--squash`.
+2. **`Story` parents live in-repo.** A `Story` has a `story/issue-<N>-<slug>` integration branch + worktree. Sub-features cut from and PR back to this integration branch; the `Story` PR then `--merge`s to base (preserving sub-feature commits), not `--squash`. A `Story` can itself be a cross-repo child of an `Epic` (`epic → story → feature`), attached via `/sillok-story --parent <epicRepo#N>`.
 3. **`Feature` / `Task` / `Bug` are atomic.** Each ships in one PR. Standalone OR a sub-issue of an `Epic` or `Story`. They cannot have sub-issues themselves.
 4. **Decomposition trigger.** Started as a `Feature` and realized it needs ≥2 sub-issues? Run `/sillok-story` to promote — Type flips to `Story`, branch renames to `story/issue-<N>-<slug>`, body becomes a tracking summary.
 
@@ -203,7 +226,29 @@ Stories are parent tracking issues (≥2 sub-issues, Type `Story`, integration b
 
 ### Epic template (PRD repo only)
 
-Epics are the cross-repo PRD parent. They live in a dedicated PRD repo and are referenced from each code-repo child via cross-repo `addSubIssue`. Body is PRD-shaped (problem, scope, success criteria, sub-issues across repos). No Design / Plan / PR sections — those live on the per-repo sub-issues.
+Epics are the cross-repo PRD parent. They live in a dedicated PRD repo (`epicRepo`, e.g. `acme/projects`) and are created by `/sillok-epic`. Code-repo children attach via cross-repo `addSubIssue`. No Design / Plan / PR sections — those live on the per-repo sub-issues.
+
+**The Epic body is intentionally light — NOT the full PRD inline.** The PRD lives in `epicRepo` at `<category>/<project-name>/prd.md` (a living doc — written there directly or synced from Notion); the Epic links to that path (and to the Notion source when synced) rather than embedding it, which would create an impossible sync burden. The PRD backing every Epic must follow the team PRD template's five validated sections: **배경** (Background) / **목표** (Goal) / **실행** (Execution) / **AI Agent Role** / **평가** (Evaluation).
+
+```markdown
+## Summary
+<1-paragraph summary>
+
+## Metadata
+- 피쳐목표: <feature_goal>
+- Main/Sub: <task_type>
+- Sprint: <sprint>
+- 개발기간: <dev_period>
+- 담당자: <owners>
+- 상태: <status>
+- 숫자: <metric>
+- 출시일: <release_date>
+- 평가 예정일: D+3 <eval.d3>, D+7 <eval.d7>
+
+## PRD
+- 원본(Notion): <notion-url>
+- 위치: <epicRepo>/<category>/<project-name>/prd.md permalink
+```
 
 ### Bug template
 

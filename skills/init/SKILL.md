@@ -1,6 +1,6 @@
 ---
 name: init
-description: Internal sillok stage skill — enter via the /sillok-init command only (init sits outside the workflow chain and is never routed by sillok:workflow). Bootstraps a project for sillok — detects repo, base branch, package manager, gitignored config files, and branch prefix automatically; asks at most two questions per run (conditional: project URL when no board is detected; auto-detected area labels when candidates found; Priority-field option mapping only when an existing board field mismatches the config), and nothing under auto-mode. Idempotent.
+description: Internal sillok stage skill — enter via the /sillok-init command only (init sits outside the workflow chain and is never routed by sillok:workflow). Bootstraps a project for sillok — detects repo, base branch, package manager, gitignored config files, and branch prefix automatically; asks at most two questions per run (conditional: project URL when no board is detected; auto-detected area labels when candidates found), and nothing under auto-mode. Org-mode runs provision the org Priority issue field without asking (API-only; not GUI-creatable). Idempotent.
 user-invocable: false
 ---
 
@@ -8,97 +8,91 @@ user-invocable: false
 
 You are running sillok `init` to bootstrap the current project for sillok.
 
-**Init takes no arguments and asks at most two questions per run**, drawn from three conditional ones — a project URL (only when auto-detection yields nothing — see Step 2a-2), the auto-detected area labels (Step 8b, interactive runs only), and the Priority-field option mapping (Step 9c, org mode, ONLY when an existing board field's options genuinely mismatch the config — a fresh or matching board asks nothing). Under auto-mode it asks nothing. If detection of any field fails, the field is left empty in the generated config and a warning is printed; the user edits `.claude/sillok/workflow.config.json` afterward.
+**Init takes no arguments and asks at most two questions per run**, drawn from two conditional ones — a project URL (only when auto-detection yields nothing — see Step 2a-2) and the auto-detected area labels (Step 8b, interactive runs only). Org-mode runs also provision the org Priority issue field (Step 9c) — but that step asks nothing: the field is created from config to match the fixed `project.priorities` option names. Under auto-mode it asks nothing at all. If detection of any field fails, the field is left empty in the generated config and a warning is printed; the user edits `.claude/sillok/workflow.config.json` afterward.
 
-**Auto-mode contract:** every step below MUST execute. Do not skip Step 7b (shim install) or Step 8b (area detection) even when invoked by an auto-mode agent. Step 7b is deterministic. Step 8b emits a deterministic tree (`project-tree.sh`), then classifies and confirms; under auto-mode the confirmation auto-accepts the classified list (written to the git-tracked config), so it never blocks. Both write only to plugin-managed paths and have idempotent safeguards documented in their own headers.
+**Auto-mode contract:** all three orchestration calls run unconditionally — phase1 (Steps 1–8, deterministic, including the shim install at Step 7b), the in-skill area classification (Step 8b), and phase2 (Steps 9–10). Step 8b reads the directory tree that phase1 already emitted (it does not re-run `project-tree.sh`), then classifies and confirms; under auto-mode that confirmation auto-accepts the classified list (written to the git-tracked config), so it never blocks. Every step writes only to plugin-managed paths and carries idempotent safeguards documented in its own header.
+
+## How this skill is structured
+
+The deterministic, side-effecting work lives in `scripts/init-bootstrap.sh`, which runs in **two phases** and reports back through a printed `KEY=value` status block on stdout (the same channel `detect-stack.sh` / `precompute-*.sh` use). You orchestrate:
+
+1. Run **phase1** (Steps 1–8 below, minus the two judgment steps) and parse its status block.
+2. Run the in-skill **Step 2a-2 empty-case URL prompt** (only when `PROJ_NUM=0`).
+3. Run the in-skill **Step 8b** area classification and persist `labels.areas`.
+4. Run **phase2** (Steps 9, 9b, 9c, 10), which re-reads the now-final `labels.areas` from disk.
+5. Compose the **Step 11** summary from the phase1 + phase2 keys plus the skill-owned `AREA_STATUS`.
+
+**Reading the status block — field reader, NEVER `eval`.** Parse each phase's stdout one line at a time with a field reader; **do not** `eval` it (status values like `MERGE_SUMMARY`/`REFRESH_SUMMARY` contain spaces, so `eval` would mis-parse them — `detect-stack.sh`'s header documents the same hazard):
+
+```bash
+# parse phase1 output (already captured in $INIT1) into shell vars
+while IFS='=' read -r key val; do
+  case "$key" in
+    REPO) REPO="$val" ;;
+    BASE_BRANCH) BASE_BRANCH="$val" ;;
+    ORG_MODE) ORG_MODE="$val" ;;
+    OWNER_TYPE) OWNER_TYPE="$val" ;;
+    STACK) STACK="$val" ;;
+    PROJ_OWNER) PROJ_OWNER="$val" ;;
+    PROJ_NUM) PROJ_NUM="$val" ;;
+    PROJ_TOTAL) PROJ_TOTAL="$val" ;;
+    BRANCH_PREFIX) BRANCH_PREFIX="$val" ;;
+    CFG_PATH) CFG="$val" ;;
+    PROJECT_ROOT) PROJECT_ROOT="$val" ;;
+    CONFIG_STATUS) CONFIG_STATUS="$val" ;;
+    RULES_STATUS) RULES_STATUS="$val" ;;
+    SHIM_STATUS) SHIM_STATUS="$val" ;;
+    CLAUDE_MD_STATUS) CLAUDE_MD_STATUS="$val" ;;
+    TYPES_STATUS) TYPES_STATUS="$val" ;;
+  esac
+done <<EOF
+$INIT1
+EOF
+```
+
+The project tree for Step 8b is fenced between `### project-tree` and `### end-project-tree` sentinels in the phase1 output — extract it from there; do NOT re-run `project-tree.sh`.
+
+**Hard ordering requirement:** Step 8b (below) must persist `labels.areas` to `CFG` **before** you invoke phase2 — phase2's `bootstrap-labels.sh` re-reads `labels.areas` from disk, so if the jq write hasn't happened the area labels silently won't be created.
+
+## Run phase1 (Steps 1–8, deterministic)
+
+```bash
+INIT1=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/init-bootstrap.sh" phase1) || {
+  echo "[sillok-init] phase1 failed — see stderr above. Stopping." >&2
+  exit 1
+}
+```
+
+**If phase1 exits non-zero, stop here** — do not run Step 8b or phase2. Step 1 hard-fails this way on a missing `git`/`gh`/`jq` or a non-repo CWD; surface phase1's stderr to the user (under auto-mode too, where nothing else is watching the stderr soft-contract) instead of proceeding with empty status vars.
+
+Then parse `$INIT1` with the field reader above. phase1 covers, all relocated verbatim into the script:
 
 ## Step 1: Verify prerequisites
 
-Run silently:
-
-```bash
-need_missing=""
-for cmd in git gh jq; do
-  if ! command -v "$cmd" >/dev/null 2>&1; then
-    need_missing="$need_missing $cmd"
-  fi
-done
-if [[ -n "$need_missing" ]]; then
-  echo "[sillok-init] missing tools:$need_missing"
-  echo "[sillok-init] install them and re-run /sillok-init"
-  exit 1
-fi
-
-if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
-  echo "[sillok-init] not inside a git repository — cd into the project root first"
-  exit 1
-fi
-
-# Initialize sub-step status variables consumed by the Step 11 summary.
-# Each step below sets its own; defaulting to "fail" makes any skipped step
-# visible in the final status icon rather than silently masquerading as ok.
-CONFIG_STATUS=fail
-RULES_STATUS=fail
-SHIM_STATUS=fail
-CLAUDE_MD_STATUS=fail
-AREA_STATUS=fail
-LABELS_STATUS=fail
-TYPES_STATUS=fail
-PROJECT_STATUS=fail
-PRIORITY_STATUS=fail
-ORG_MODE=false
-```
+Handled by `init-bootstrap.sh phase1` — it hard-fails (non-zero exit) on missing `git`/`gh`/`jq` or when not inside a git repository. It also initializes the sub-step status variables (`CONFIG_STATUS`, `RULES_STATUS`, … default to `fail`) that the status block reports.
 
 ## Step 2: Detect repo and base branch
 
-```bash
-REPO=$(gh repo view --json owner,name --jq '"\(.owner.login)/\(.name)"' 2>/dev/null || echo "")
-BASE_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null || echo "main")
-```
-
-If `REPO` is empty, set a warning flag (printed at end). The user will need to fill `repo` in the generated config manually.
+Handled by phase1 (`gh repo view`) → emits `REPO` and `BASE_BRANCH`. If `REPO` is empty, the user must fill `repo` in the generated config manually (surfaced in the Step 11 summary).
 
 ## Step 2a: Detect org mode
 
-```bash
-OWNER_TYPE=$(gh api "/repos/$REPO" --jq '.owner.type' 2>/dev/null || echo "User")
-if [[ "$OWNER_TYPE" == "Organization" ]]; then
-  ORG_MODE=true
-else
-  ORG_MODE=false
-  echo "[sillok-init] ⚠️  User-owned repo detected. Issue Types and linked branches unavailable — using label fallback mode."
-fi
-```
+Handled by phase1 (`gh api /repos/$REPO` owner type) → emits `ORG_MODE` and `OWNER_TYPE`. User-owned repos print a label-fallback notice to stderr.
 
 ## Step 2a-2: Auto-detect project
 
+The deterministic single/multi-project auto-detect arms (`gh project list`) run in phase1 and emit `PROJ_OWNER`, `PROJ_NUM` (`0` ⇒ empty-case), and `PROJ_TOTAL`. The **empty-case URL prompt stays here in the skill** — it is interactive and only fires when auto-detection found nothing:
+
+**If `PROJ_NUM=0`** (no single auto-detected board), prompt once for a project URL (acceptable exception to zero-prompt — only fires when auto-detection yields nothing). First note the closed/hidden case driven by `PROJ_TOTAL`:
+
+- If `PROJ_TOTAL` > 0: tell the user there are no OPEN projects under `$PROJ_OWNER` but `$PROJ_TOTAL` closed/hidden project(s) exist (they can list them with `gh project list --owner $PROJ_OWNER --closed`).
+- Otherwise: tell the user no projects were found under `$PROJ_OWNER`.
+
+Then ask the user to **paste its URL** (or skip). Use `AskUserQuestion`/`read` for the prompt. On a non-empty URL, parse it and, on a valid parse, write the board into `CFG` so phase2 verifies the right project:
+
 ```bash
-PROJ_OWNER="${REPO%%/*}"
-PROJ_NUM=0
-PROJ_TITLE=""
-
-# Try listing projects for the repo owner (works for both org and user)
-proj_json=$(gh project list --owner "$PROJ_OWNER" --format json 2>/dev/null || echo '{"projects":[],"totalCount":0}')
-proj_count=$(echo "$proj_json" | jq '.projects | length')
-proj_total=$(echo "$proj_json" | jq '.totalCount // 0')
-
-if [[ "$proj_count" == "1" ]]; then
-  PROJ_NUM=$(echo "$proj_json" | jq -r '.projects[0].number')
-  PROJ_TITLE=$(echo "$proj_json" | jq -r '.projects[0].title')
-  echo "[sillok-init] Auto-detected project: $PROJ_TITLE (#$PROJ_NUM)"
-elif [[ "$proj_count" -gt 1 ]]; then
-  echo "[sillok-init] Multiple projects found for $PROJ_OWNER:"
-  echo "$proj_json" | jq -r '.projects[] | "  \(.number)) \(.title)"'
-  echo "[sillok-init] Set project.owner and project.number in workflow.config.json manually."
-else
-  # Empty-case: 0 open projects under the repo owner. Note closed/hidden, then
-  # prompt once for a project URL (acceptable exception to zero-prompt — only
-  # fires when auto-detection yields nothing).
-  if [[ "$proj_total" -gt 0 ]]; then
-    echo "[sillok-init] No OPEN projects under $PROJ_OWNER (but $proj_total closed/hidden project(s) exist — list with 'gh project list --owner $PROJ_OWNER --closed')."
-  else
-    echo "[sillok-init] No projects found under $PROJ_OWNER."
-  fi
+if [[ "$PROJ_NUM" == "0" ]]; then
+  # (prose above: print the closed/hidden vs none note using $PROJ_TOTAL, then prompt)
   read -r -p "If your board lives elsewhere, paste its URL (or press Enter to skip): " proj_url
   if [[ -n "$proj_url" ]]; then
     parsed=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/parse-project-url.sh" "$proj_url" 2>/dev/null || echo "")
@@ -107,8 +101,10 @@ else
     if [[ -n "$url_owner" && -n "$url_number" ]]; then
       PROJ_OWNER="$url_owner"
       PROJ_NUM="$url_number"
-      PROJ_TITLE=$(gh project view "$PROJ_NUM" --owner "$PROJ_OWNER" --format json --jq '.title' 2>/dev/null || echo "(unknown)")
-      echo "[sillok-init] Project set from URL: $PROJ_TITLE (#$PROJ_NUM, owner=$PROJ_OWNER)"
+      tmp=$(mktemp)
+      jq --arg o "$PROJ_OWNER" --argjson n "$PROJ_NUM" \
+        '.project.owner = $o | .project.number = $n' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+      echo "[sillok-init] Project set from URL: (#$PROJ_NUM, owner=$PROJ_OWNER)"
     else
       echo "[sillok-init] URL did not match a GitHub project — skipping project setup."
     fi
@@ -118,238 +114,39 @@ fi
 
 ## Step 2b: Verify org Issue Types
 
-If `$ORG_MODE` is `false`, skip this step entirely (Issue Types are org-only):
-
-```bash
-if [[ "$ORG_MODE" != "true" ]]; then
-  TYPES_STATUS=skip-user-repo
-else
-  OWNER="${REPO%%/*}"
-  expected_types=("Epic" "Story" "Feature" "Task" "Bug")
-  existing_types=$(gh api -H "X-GitHub-Api-Version: 2026-03-10" "/orgs/$OWNER/issue-types" --jq '.[].name' 2>/dev/null || echo "")
-
-  missing=()
-  for t in "${expected_types[@]}"; do
-    if ! echo "$existing_types" | grep -qx "$t"; then
-      missing+=("$t")
-    fi
-  done
-
-  if [[ ${#missing[@]} -gt 0 ]]; then
-    echo "[sillok-init] Required org issue types missing: ${missing[*]}"
-    echo "  Ask your org owner to run:"
-    for t in "${missing[@]}"; do
-      echo "    gh api -X POST -H 'X-GitHub-Api-Version: 2026-03-10' /orgs/$OWNER/issue-types -f name=$t"
-    done
-    echo "  Or via UI: https://github.com/organizations/$OWNER/settings/issue-types"
-    TYPES_STATUS=missing
-  else
-    TYPES_STATUS=ok
-  fi
-fi
-```
-
-`TYPES_STATUS` is initialized to `fail` in Step 1 and surfaces in the Step 11 summary. A `missing` value triggers the ⚠️ warnings headline. `skip-user-repo` is informational (NOT a warning).
+Handled by phase1 → emits `TYPES_STATUS` (`ok | missing | skip-user-repo`; user repos skip — Issue Types are org-only). A `missing` value triggers the ⚠️ warnings headline; `skip-user-repo` is informational (NOT a warning).
 
 ## Step 3: Detect package manager and verify commands
 
-`detect-stack.sh` emits one `key=value` line per field. The values often contain whitespace (e.g. `install=yarn install`, `typecheck=npx tsc --noEmit`), so `eval` is unsafe — the shell would parse `install=yarn install` as a prefix-assignment followed by an `install` command. Use an explicit field reader instead:
-
-```bash
-PROJECT_ROOT=$(git rev-parse --show-toplevel)
-install=""; lint=""; typecheck=""; format=""
-while IFS='=' read -r key val; do
-  case "$key" in
-    install)   install="$val" ;;
-    lint)      lint="$val" ;;
-    typecheck) typecheck="$val" ;;
-    format)    format="$val" ;;
-  esac
-done < <(bash "${CLAUDE_PLUGIN_ROOT}/scripts/detect-stack.sh" "$PROJECT_ROOT")
-```
-
-If `install` is empty, set a warning flag noting "unknown stack — fill verify.* manually".
+Handled by phase1 via `detect-stack.sh` (read with a `key=value` field reader, not `eval`, since values contain whitespace) → emits the single `STACK` label and writes `install`/`verify.*` into the config. Unknown stack ⇒ the user fills `verify.*` manually.
 
 ## Step 4: Branch prefix default
 
-```bash
-# The default template uses {type}/issue-, which substitutes to feature/issue-,
-# bug/issue-, epic/issue-, etc. at branch-creation time. Users can override to
-# any literal or templated string by editing workflow.config.json.
-BRANCH_PREFIX="{type}/issue-"
-```
+Handled by phase1 → emits `BRANCH_PREFIX` (default template `{type}/issue-`, which substitutes to `feature/issue-`, `bug/issue-`, etc. at branch-creation time). Users can override by editing `workflow.config.json`.
 
 ## Step 5: Detect worktree copy files
 
-Find gitignored files that match common per-worktree config patterns. The pipeline pre-filters with `grep` so dependency-cache entries like `node_modules/**/*` don't crowd out the actual config files; the case-filter inside the loop then acts as a final defence-in-depth check.
-
-```bash
-COPY_FILES=()
-while IFS= read -r f; do
-  case "$f" in
-    *.env|*.env.local|*.env.production|.env|.env.*) COPY_FILES+=("$f") ;;
-    *eas.json|eas.json) COPY_FILES+=("$f") ;;
-    *google-services.json|google-services.json) COPY_FILES+=("$f") ;;
-    *GoogleService-Info.plist|GoogleService-Info.plist) COPY_FILES+=("$f") ;;
-  esac
-done < <(cd "$PROJECT_ROOT" && git ls-files --others --ignored --exclude-standard 2>/dev/null \
-  | grep -E '(^|/)(\.env(\..*)?|eas\.json|google-services\.json|GoogleService-Info\.plist)$' \
-  | grep -vE '^(node_modules|vendor|target|dist|build|out|coverage|\.next|\.turbo|\.svelte-kit|\.nuxt|\.cache)/' \
-  | head -200)
-```
-
-Two-stage filter rationale:
-
-1. **First `grep`** narrows the gitignored-file list to candidates that *might* be per-worktree config. Without this, `git ls-files --others --ignored` is dominated by `node_modules/` (typically tens of thousands of entries), drowning out the root-level config we care about.
-2. **Second `grep -v`** excludes matches that happen to live inside dependency caches or build outputs (e.g. a third-party package shipping its own `.env.example` under `node_modules/foo/.env.example`). Those files are owned by the dependency, not the project, and copying them into a new worktree is wrong (worktrees reinstall dependencies anyway).
-3. **`head -200`** is a safety bound for absurdly large match sets — well above any realistic per-project config count.
-
-The case-filter inside the loop remains as a final defence-in-depth check.
+Handled by phase1 — finds gitignored per-worktree config files (`.env*`, `eas.json`, `google-services.json`, `GoogleService-Info.plist`) with the two-stage `grep`/`grep -v`/`head -200` filter (so `node_modules/**` doesn't drown out the root config), and writes them into `worktree.copyFiles`.
 
 ## Step 6: Write `workflow.config.json`
 
-```bash
-mkdir -p "$PROJECT_ROOT/.claude/sillok"
-CFG="$PROJECT_ROOT/.claude/sillok/workflow.config.json"
-
-MERGE_SUMMARY=""
-
-# Existing config — deep-merge in any missing template keys (user values win).
-if [[ -f "$CFG" ]]; then
-  if MERGE_SUMMARY=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/migrate-config.sh" \
-      "$CFG" "${CLAUDE_PLUGIN_ROOT}/templates/workflow.config.json"); then
-    if [[ -n "$MERGE_SUMMARY" ]]; then
-      echo "$MERGE_SUMMARY"
-      CONFIG_STATUS=migrated
-    else
-      CONFIG_STATUS=ok
-    fi
-  else
-    CONFIG_STATUS=fail
-  fi
-else
-  CONFIG_STATUS=ok
-  # Build copyFiles JSON array
-  copyfiles_json=$(printf '%s\n' "${COPY_FILES[@]}" | jq -R . | jq -s .)
-
-  jq -n \
-    --arg repo "$REPO" \
-    --arg baseBranch "$BASE_BRANCH" \
-    --arg branchPrefix "$BRANCH_PREFIX" \
-    --argjson copyFiles "$copyfiles_json" \
-    --arg install "$install" \
-    --arg lint "$lint" \
-    --arg typecheck "$typecheck" \
-    --arg format "$format" \
-    --argjson orgMode "$ORG_MODE" \
-    --arg projOwner "$PROJ_OWNER" \
-    --argjson projNum "$PROJ_NUM" \
-    '{
-      "$schema": "https://raw.githubusercontent.com/judeProground/sillok/main/schema/v1.json",
-      "version": 1,
-      "repo": $repo,
-      "baseBranch": $baseBranch,
-      "branchPrefix": $branchPrefix,
-      "prdRepo": "",
-      "orgMode": $orgMode,
-      "project": {
-        "owner": $projOwner,
-        "number": $projNum,
-        "statusField": "Status",
-        "statuses": {
-          "todo": "Todo",
-          "design": "In Design",
-          "progress": "In Progress",
-          "review": "In QA",
-          "done": "Done"
-        },
-        "priorityField": "Priority",
-        "priorities": {
-          "p1": "Urgent",
-          "p2": "High",
-          "p3": "Medium",
-          "p4": "Low"
-        }
-      },
-      "types": {
-        "list": ["Epic", "Story", "Feature", "Task", "Bug"],
-        "defaults": {
-          "feature": "Feature",
-          "composite": "Story",
-          "prd": "Epic"
-        }
-      },
-      "worktree": { "enabled": true, "dir": ".worktrees", "copyFiles": $copyFiles },
-      "install": $install,
-      "verify": { "lint": $lint, "typecheck": $typecheck, "format": $format },
-      "docs": { "specs": "docs/superpowers/specs", "plans": "docs/superpowers/plans" },
-      "commit": { "coAuthor": "" },
-      "milestone": { "naming": "YYYY-MM-Wn", "sprintWeeks": 2, "weekStart": "monday" },
-      "labels": {
-        "priorities": ["p1", "p2", "p3", "p4"],
-        "areas": [],
-        "natures": ["improvement", "refactor", "infra", "docs", "security", "performance"],
-        "defaults": { "priority": "p3" }
-      }
-    }' > "$CFG"
-fi
-```
+Handled by phase1. On an existing config it deep-merges missing template keys via `migrate-config.sh` (user values win, arrays verbatim) and reports `CONFIG_STATUS=migrated`; otherwise it writes a fresh config and reports `CONFIG_STATUS=ok`. `CONFIG_STATUS` values: `ok | migrated | fail`.
 
 ## Step 7: Scaffold rules
 
-```bash
-RULES_DIR="$PROJECT_ROOT/.claude/sillok/rules"
-if REFRESH_SUMMARY=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/refresh-rules.sh" \
-    "$RULES_DIR" "${CLAUDE_PLUGIN_ROOT}/templates/rules"); then
-  RULES_STATUS=ok
-  [[ -n "$REFRESH_SUMMARY" ]] && echo "$REFRESH_SUMMARY"
-else
-  RULES_STATUS=fail
-fi
-```
+Handled by phase1 via `refresh-rules.sh` (overwrites project rule files from `templates/rules/` when content differs) → emits `RULES_STATUS`.
 
 ## Step 7b: Write command shortcut shims (REQUIRED)
 
-This step is REQUIRED. Do not skip even when operating in auto-mode. The script only writes to `.claude/commands/sillok-*.md` files (6 specific filenames), respects existing foreign files via the `sillok-shim: true` marker, and is fully idempotent. Skipping it leaves the plugin's `/sillok-*` shortcuts inactive — a silent regression for the user.
-
-Plugin slash commands are namespaced by Claude Code (`/sillok:sillok-start` etc.). The shims under `.claude/commands/` are the only supported mechanism for the shorter `/sillok-start` form.
-
-```bash
-if bash "${CLAUDE_PLUGIN_ROOT}/scripts/write-shim-commands.sh" "$PROJECT_ROOT"; then
-  SHIM_STATUS=ok
-else
-  SHIM_STATUS=fail
-fi
-```
-
-`SHIM_STATUS` feeds the final-summary status calculation in Step 11. If `fail`, the summary becomes ⚠️ with a follow-up command the user can copy.
+Handled by phase1 via `write-shim-commands.sh` → emits `SHIM_STATUS`. This step is REQUIRED (the script writes the `.claude/commands/sillok-*.md` shims, respecting foreign files via the `sillok-shim: true` marker; it is idempotent). If `SHIM_STATUS=fail`, the Step 11 summary becomes ⚠️ with a follow-up command the user can copy.
 
 ## Step 8: Append `CLAUDE.md` imports
 
-```bash
-CLAUDE_MD="$PROJECT_ROOT/CLAUDE.md"
-SNIPPET="${CLAUDE_PLUGIN_ROOT}/templates/claude-md-snippet.md"
-CLAUDE_MD_STATUS=ok
-if [[ ! -f "$CLAUDE_MD" ]]; then
-  if ! { echo "# CLAUDE.md" > "$CLAUDE_MD" && echo >> "$CLAUDE_MD"; }; then
-    CLAUDE_MD_STATUS=fail
-  fi
-fi
-# Only append the import section if the marker line is not already there.
-if [[ "$CLAUDE_MD_STATUS" == "ok" ]] && ! grep -q "## Sillok workflow rules" "$CLAUDE_MD"; then
-  if ! { echo >> "$CLAUDE_MD" && cat "$SNIPPET" >> "$CLAUDE_MD"; }; then
-    CLAUDE_MD_STATUS=fail
-  fi
-fi
-```
+Handled by phase1 → emits `CLAUDE_MD_STATUS`. The append is guarded by the `## Sillok workflow rules` marker (`grep -q`), so a re-run never duplicates the import block.
 
 ## Step 8b: Auto-detect area labels (hybrid — tree → classify → confirm)
 
-Detect vertical business feature areas for `area:<name>` GitHub labels. The
-deterministic part (emit the project's directory structure) is done by
-`project-tree.sh`; the judgment part (which dirs are business domains vs. technical
-layers) is done by **you**, the LLM running this skill; GitHub labels are created
-only after a one-time confirmation.
+**This step STAYS in the skill — it is the LLM-judgment half.** phase1 already emitted the deterministic directory tree (between the `### project-tree` / `### end-project-tree` sentinels in `$INIT1`); you classify and persist. Detect vertical business feature areas for `area:<name>` GitHub labels.
 
 1. **Skip if user already curated areas.** Re-running init on a project where
    `labels.areas` is already non-empty must NOT clobber the user's curation:
@@ -363,11 +160,9 @@ only after a one-time confirmation.
 
    When `skip-preserved`, **Step 8b is done — skip steps 2–6.**
 
-2. **Emit the directory tree (deterministic).**
-
-   ```bash
-   TREE=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/project-tree.sh" "$PROJECT_ROOT" 2>/dev/null || true)
-   ```
+2. **Read the directory tree (deterministic, already produced).** Extract the
+   lines between the `### project-tree` and `### end-project-tree` sentinels in
+   `$INIT1` into `$TREE`. Do NOT re-run `project-tree.sh`.
 
 3. **No tree → no areas.**
 
@@ -414,7 +209,7 @@ only after a one-time confirmation.
      proceed — step 6 records `none-detected`.
 
 6. **Persist to config.** `$selected` is the confirmed/auto-accepted area names,
-   one per line (empty when none).
+   one per line (empty when none). This jq write MUST complete before phase2 runs.
 
    ```bash
    selected="${selected:-}"   # ensure defined even if classification was skipped
@@ -432,194 +227,64 @@ only after a one-time confirmation.
 7. **Surface the result in Step 11.**
 
 `AREA_STATUS` is one of: `areas-confirmed`, `none-detected`, `skip-preserved`,
-`fail`. Each maps to a distinct summary line (see Step 11).
+`fail`. Each maps to a distinct summary line (see Step 11). `AREA_STATUS` stays
+**skill-owned** (you produced it) — it is not part of either phase's status block.
+
+## Run phase2 (Steps 9, 9b, 9c, 10)
+
+`labels.areas` is now final on disk, so run phase2 and parse its status block:
+
+```bash
+INIT2=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/init-bootstrap.sh" phase2)
+while IFS='=' read -r key val; do
+  case "$key" in
+    LABELS_STATUS) LABELS_STATUS="$val" ;;
+    PROJECT_STATUS) PROJECT_STATUS="$val" ;;
+    PRIORITY_STATUS) PRIORITY_STATUS="$val" ;;
+  esac
+done <<EOF
+$INIT2
+EOF
+```
+
+phase2 re-reads `CFG`/config FRESH from disk (it depends on no phase1 shell vars) and covers:
 
 ## Step 9: Bootstrap labels
 
-```bash
-if [[ -n "$REPO" ]]; then
-  if bash "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-labels.sh" "$REPO" --config "$CFG"; then
-    LABELS_STATUS=ok
-  else
-    LABELS_STATUS=fail
-  fi
-else
-  LABELS_STATUS=skipped-no-repo
-fi
-```
-
-The `--config` flag picks up `labels.areas` from the config (empty by default) and creates corresponding `area:<name>` labels with color `c9d4dd` (muted blue-gray).
-
-If `$REPO` is empty (detection failed), skip with a warning that the user must run `bash ${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-labels.sh <owner>/<repo> --config <path-to-config>` manually.
+Handled by phase2 via `bootstrap-labels.sh "$REPO" --config "$CFG"` → emits `LABELS_STATUS` (`ok | skipped-no-repo | fail`). The `--config` flag picks up the now-final `labels.areas` and creates `area:<name>` labels (color `c9d4dd`); existing labels are skipped (`gh label create … || true`). If `REPO` is empty, the step is `skipped-no-repo` and the user runs `bootstrap-labels.sh` manually.
 
 ## Step 9b: Verify project + Status field options
 
-If `project.owner` and `project.number` are configured, verify the project exists and the Status field has the expected option names.
+Handled by phase2 via `gh project field-list` (owner-agnostic — works for user- and org-owned boards). It reads `project.owner`/`project.number` from `CFG`, compares the Status field's option names against the config's `project.statuses` values, and emits `PROJECT_STATUS` (`ok | incomplete | unconfigured`). Note: this verification does NOT issue a `gh api graphql` org query — it uses the CLI's `field-list`.
 
-```bash
-PROJ_OWNER=$(jq -r '.project.owner' "$CFG")
-PROJ_NUM=$(jq -r '.project.number' "$CFG")
-if [[ -n "$PROJ_OWNER" && "$PROJ_NUM" != "0" && "$PROJ_NUM" != "null" ]]; then
-  # Expected options come from the config's project.statuses VALUES (all six,
-  # including Backlog — #33), not a hardcoded list: the config is the contract
-  # the stage skills resolve against, so re-init must verify exactly what they
-  # will use.
-  expected_opts=()
-  while IFS= read -r opt; do expected_opts+=("$opt"); done \
-    < <(jq -r '.project.statuses // {} | .[]' "$CFG")
-  # gh project field-list is owner-agnostic (works for both user- and org-owned boards)
-  actual_opts=$(gh project field-list "$PROJ_NUM" --owner "$PROJ_OWNER" --format json \
-    --jq '.fields[] | select(.name=="Status") | .options[].name' 2>/dev/null || echo "")
+## Step 9c: Priority field (org mode only — ensure the org issue field)
 
-  proj_missing=()
-  for opt in "${expected_opts[@]}"; do
-    if ! echo "$actual_opts" | grep -qx "$opt"; then
-      proj_missing+=("$opt")
-    fi
-  done
-
-  if [[ ${#proj_missing[@]} -gt 0 ]]; then
-    echo "[sillok-init] Project $PROJ_OWNER/projects/$PROJ_NUM Status field missing options: ${proj_missing[*]}"
-    echo "  Add via UI: https://github.com/orgs/$PROJ_OWNER/projects/$PROJ_NUM/settings (or /users/$PROJ_OWNER/projects/$PROJ_NUM/settings for a user board)"
-    PROJECT_STATUS=incomplete
-  else
-    PROJECT_STATUS=ok
-  fi
-else
-  PROJECT_STATUS=unconfigured
-  echo "[sillok-init] Cross-repo PRD: set 'project.owner' and 'project.number' in workflow.config.json to enable status transitions"
-fi
-```
-
-`PROJECT_STATUS` is initialized to `fail` in Step 1. Values: `ok` (project verified), `incomplete` (Status field missing options), `unconfigured` (project not yet set in config — informational, not a warning).
-
-## Step 9c: Priority field (org mode only — ensure + option mapping)
-
-On org repos, priority lives on the board's Priority single-select field (`project.priorityField`), not on `p1`–`p4` labels — the same native-primitive split as type→Issue Type and stage→Status. User repos keep the labels, so this whole step is skipped there.
-
-1. **Gate + read the board's options for the configured field:**
-
-   ```bash
-   if [[ "$ORG_MODE" != "true" ]]; then
-     PRIORITY_STATUS=skip-user-repo
-   elif [[ -z "$PROJ_OWNER" || "$PROJ_NUM" == "0" || "$PROJ_NUM" == "null" ]]; then
-     PRIORITY_STATUS=unconfigured
-   else
-     PRIORITY_FIELD=$(jq -r '.project.priorityField // "Priority"' "$CFG")
-     pri_fields_json=$(gh project field-list "$PROJ_NUM" --owner "$PROJ_OWNER" --format json 2>/dev/null || echo '{"fields":[]}')
-     pri_field_exists=$(echo "$pri_fields_json" | jq -r --arg f "$PRIORITY_FIELD" '[.fields[] | select(.name==$f)] | length')
-     pri_field_type=$(echo "$pri_fields_json" | jq -r --arg f "$PRIORITY_FIELD" '.fields[] | select(.name==$f) | .type // ""')
-     actual_pri_opts=$(echo "$pri_fields_json" | jq -r --arg f "$PRIORITY_FIELD" '.fields[] | select(.name==$f) | .options[]?.name')
-   fi
-   ```
-
-   When `PRIORITY_STATUS` was set to `skip-user-repo` or `unconfigured`, **Step 9c is done — skip steps 2–4.**
-
-2. **Field absent → auto-create, no question** (user-confirmed decision on #66; same resolution level as the Status detection in Step 9b, auto-accepted under auto-mode). `sillok_project_priority_field_ensure` creates the single-select via `createProjectV2Field` with options from `project.priorities` in p1→p4 order and prints one stderr notice:
-
-   ```bash
-   if [[ "$pri_field_exists" == "0" ]]; then
-     source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/project.sh"
-     if sillok_project_priority_field_ensure; then
-       PRIORITY_STATUS=created
-     else
-       PRIORITY_STATUS=fail
-     fi
-   fi
-   ```
-
-   When the field was absent, **Step 9c is done — skip steps 3–4.**
-
-3. **Field exists → verify it's actually a single-select with options, then compare against the config mapping.** A name match alone is not enough — a text/number field named "Priority", or a single-select with zero options, can never hold a priority (`gh project field-list` exposes `.type`; require `ProjectV2SingleSelectField`):
-
-   ```bash
-   if [[ "$pri_field_type" != "ProjectV2SingleSelectField" || -z "$actual_pri_opts" ]]; then
-     PRIORITY_STATUS=fail
-     echo "[sillok-init] field '$PRIORITY_FIELD' exists but is not a single-select (or has no options) — rename/delete it or point project.priorityField elsewhere"
-   fi
-   ```
-
-   When this gate fails, **Step 9c is done — skip step 4.** (`sillok_project_priority_field_ensure` itself stays a simple name check — this init gate is where field type and options are verified.)
-
-   Otherwise compare the board's options against the config mapping values. Zero non-empty mapped values is a `fail`, not `ok` — an all-empty mapping can never set any priority:
-
-   ```bash
-   pri_mismatch=0
-   pri_mapped=0
-   for key in p1 p2 p3 p4; do
-     want=$(jq -r ".project.priorities.$key // \"\"" "$CFG")
-     if [[ -n "$want" ]]; then
-       pri_mapped=$((pri_mapped + 1))
-       if ! echo "$actual_pri_opts" | grep -qxF "$want"; then
-         pri_mismatch=1
-       fi
-     fi
-   done
-   if [[ "$pri_mapped" == "0" ]]; then
-     PRIORITY_STATUS=fail
-     echo "[sillok-init] project.priorities maps no option names — fill in p1–p4 in workflow.config.json (the schema requires all four)"
-   elif [[ "$pri_mismatch" == "0" ]]; then
-     PRIORITY_STATUS=ok
-   fi
-   ```
-
-   All four mapped names present → `ok`; zero mapped names → `fail`; **in either case Step 9c is done — skip step 4.** On `ok` nothing is asked and nothing changes (idempotent re-init).
-
-4. **Genuine mismatch → propose the closest p1→p4 mapping (LLM judgment — you do this), confirm, persist.** Read `$actual_pri_opts` and map the board's options to sillok keys ordered most→least urgent (e.g. `P0/P1/P2` → p1=P0, p2=P1, p3=P2, p4=P2 — with fewer than four options the lowest keys share the least-urgent option; with more than four, pick the four clearest urgency levels).
-
-   - **Interactive:** present the proposed mapping and ask the user to confirm or edit it (via `AskUserQuestion`). This is the Priority-mapping question from the at-most-two budget — it fires ONLY on genuine mismatch. If two questions were already asked this run, do not ask a third: accept the proposal silently (it lands in the git-tracked config, freely editable afterward).
-   - **Auto-mode:** accept the proposed mapping without prompting.
-
-   Persist the confirmed mapping (board option names stay untouched — the config absorbs naming differences, mirroring the `statuses` mapping philosophy):
-
-   ```bash
-   tmp=$(mktemp)
-   jq --arg p1 "<p1-option>" --arg p2 "<p2-option>" --arg p3 "<p3-option>" --arg p4 "<p4-option>" \
-     '.project.priorities = { "p1": $p1, "p2": $p2, "p3": $p3, "p4": $p4 }' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
-   PRIORITY_STATUS=mapped
-   ```
-
-`PRIORITY_STATUS` is one of: `ok`, `created`, `mapped`, `skip-user-repo`, `unconfigured`, `fail`. Only `fail` is a warning; `skip-user-repo` and `unconfigured` are informational.
+Handled by phase2 (org mode only) → emits `PRIORITY_STATUS` (`ok | incomplete | skip-user-repo | unconfigured | fail`). It sources `lib/project.sh` and calls `sillok_org_priority_field_ensure` to discover/create the org Priority **issue field** (single-select from `project.priorities`, projected onto the board — API-only, not GUI-creatable), then verifies option coverage. User repos skip this entirely (`skip-user-repo`; p1–p4 labels are the priority record there). On steady-state re-init the step is `ok` without prompting or changing anything.
 
 ## Step 10: Ensure spec/plan dirs + gitignore
 
-```bash
-SPEC_DIR=$(jq -r '.docs.specs' "$CFG")
-PLAN_DIR=$(jq -r '.docs.plans' "$CFG")
-mkdir -p "$PROJECT_ROOT/$SPEC_DIR" "$PROJECT_ROOT/$PLAN_DIR"
-```
-
-Spec and plan files are local working artifacts (the issue body is the canonical record). Add them to `.gitignore` if not already present:
-
-```bash
-GITIGNORE="$PROJECT_ROOT/.gitignore"
-for entry in "$SPEC_DIR/" "$PLAN_DIR/"; do
-  if ! grep -qxF "$entry" "$GITIGNORE" 2>/dev/null; then
-    echo "$entry" >> "$GITIGNORE"
-  fi
-done
-```
+Handled by phase2 — `mkdir -p` the `docs.specs`/`docs.plans` dirs and append them to `.gitignore` if absent (they are local working artifacts; the issue body is the canonical record).
 
 ## Step 11: Print summary
 
-Compute the headline status icon from sub-step outcomes:
+Compute the headline status icon from sub-step outcomes (phase1 + phase2 keys + the skill-owned `AREA_STATUS`):
 
 ```bash
-# Inputs (set by earlier steps):
-#   CONFIG_STATUS   = ok | migrated | fail          (Step 6)
-#   RULES_STATUS    = ok | fail                    (Step 7)
-#   SHIM_STATUS     = ok | fail                    (Step 7b)
-#   CLAUDE_MD_STATUS= ok | fail                    (Step 8)
-#   AREA_STATUS     = areas-confirmed | none-detected | skip-preserved | fail   (Step 8b)
-#   LABELS_STATUS   = ok | skipped-no-repo | fail  (Step 9)
-#   TYPES_STATUS    = ok | missing | skip-user-repo | fail   (Step 2b)
-#   PROJECT_STATUS  = ok | incomplete | unconfigured | fail   (Step 9b)
-#   PRIORITY_STATUS = ok | created | mapped | skip-user-repo | unconfigured | fail   (Step 9c)
+# Inputs:
+#   CONFIG_STATUS   = ok | migrated | fail          (Step 6, phase1)
+#   RULES_STATUS    = ok | fail                    (Step 7, phase1)
+#   SHIM_STATUS     = ok | fail                    (Step 7b, phase1)
+#   CLAUDE_MD_STATUS= ok | fail                    (Step 8, phase1)
+#   AREA_STATUS     = areas-confirmed | none-detected | skip-preserved | fail   (Step 8b, in-skill)
+#   LABELS_STATUS   = ok | skipped-no-repo | fail  (Step 9, phase2)
+#   TYPES_STATUS    = ok | missing | skip-user-repo | fail   (Step 2b, phase1)
+#   PROJECT_STATUS  = ok | incomplete | unconfigured | fail   (Step 9b, phase2)
+#   PRIORITY_STATUS = ok | incomplete | skip-user-repo | unconfigured | fail   (Step 9c, phase2)
 
 # Critical steps — must all succeed for ✅
 if [[ "$CONFIG_STATUS" == "fail" || "$RULES_STATUS" == "fail" || "$CLAUDE_MD_STATUS" == "fail" || "$LABELS_STATUS" == "fail" ]]; then
   HEADLINE="❌ sillok init FAILED"
-elif [[ "$TYPES_STATUS" == "missing" || "$PROJECT_STATUS" == "incomplete" ]]; then
+elif [[ "$TYPES_STATUS" == "missing" || "$PROJECT_STATUS" == "incomplete" || "$PRIORITY_STATUS" == "incomplete" ]]; then
   HEADLINE="⚠️  sillok initialized (with warnings — see below)"
 elif [[ "$SHIM_STATUS" == "fail" || "$AREA_STATUS" == "fail" || "$PRIORITY_STATUS" == "fail" ]]; then
   HEADLINE="⚠️  sillok initialized (with warnings — see below)"
@@ -649,8 +314,8 @@ Created:
 - Org Issue Types (Epic/Story/Feature/Task/Bug)        [<TYPES_STATUS>]
   - `skip-user-repo` → "📋 User-owned repo — Issue Types skipped (using label fallback)."
 - Project + Status options                             [<PROJECT_STATUS>]
-- Priority field on the board (org mode)               [<PRIORITY_STATUS>]
-  - `skip-user-repo` → "📋 User-owned repo — board Priority field skipped (p1–p4 labels are the priority record)."
+- Org Priority issue field (org mode)                  [<PRIORITY_STATUS>]
+  - `skip-user-repo` → "📋 User-owned repo — org Priority issue field skipped (p1–p4 labels are the priority record)."
 ```
 
 **Area-label sub-summary** (always printed when relevant):
@@ -687,14 +352,14 @@ Next: /sillok-start to create your first feature.
 
 ## Idempotency guarantees
 
-Re-running `/sillok-init` must:
-- Refresh rule files from the plugin's `templates/rules/` (overwrite when content differs; local edits are not preserved — recover from git if needed)
+Re-running `/sillok-init` must (all preserved by the two-phase script + in-skill 8b):
+- Refresh rule files from the plugin's `templates/rules/` via `refresh-rules.sh` (overwrite when content differs; local edits are not preserved — recover from git if needed)
 - Refresh shim command files that carry `sillok-shim: true` (so a plugin upgrade can update the shim format); leave foreign `.claude/commands/sillok-*.md` files untouched
-- Skip CLAUDE.md import-block append if the marker is already present
+- Skip CLAUDE.md import-block append if the `## Sillok workflow rules` marker is already present
 - Skip label creation for labels that already exist (handled by `bootstrap-labels.sh` with `|| true`)
-- Deep-merge `workflow.config.json` on re-run: add missing template keys, preserve existing user values, keep arrays verbatim
+- Deep-merge `workflow.config.json` on re-run via `migrate-config.sh`: add missing template keys, preserve existing user values, keep arrays verbatim
 - Preserve existing `labels.areas` array: if non-empty in the existing config, Step 8b reports `skip-preserved` and does NOT overwrite (user's curation wins over auto-pick)
-- Priority field steady state asks nothing and changes nothing: when the board field exists and every `project.priorities` value matches an option, Step 9c reports `ok` without prompting or writing (a once-confirmed `mapped` config matches on every later run)
+- Priority field steady state asks nothing and changes nothing: when the field exists and every `project.priorities` value matches an option, Step 9c reports `ok` without prompting or writing (a once-confirmed `mapped` config matches on every later run)
 
 ## Integration
 

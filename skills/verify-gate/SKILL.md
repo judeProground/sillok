@@ -1,6 +1,6 @@
 ---
 name: verify-gate
-description: Use after all tasks in an implementation plan are complete (final whole-branch verification before /sillok-end). Also use manually before any push when uncertain about a non-trivial commit. Per-task usage during execute is now optional, not required.
+description: Use after all tasks in an implementation plan are complete (final whole-branch verification before /sillok-end). Also use manually before any push when uncertain about a non-trivial commit. Per-task usage during execute is optional, not required.
 ---
 
 # Sillok Verify Gate
@@ -15,7 +15,7 @@ Whole-branch verification protocol for your codebase. Primary use case is end-of
 - Before opening a PR (same as above when triggered manually).
 - After resolving merge conflicts.
 - Manually after a commit you're unsure about.
-- **Per-task during execute (OPTIONAL).** Only if a task introduces a new lint/tsc surface or you genuinely doubt the change. Not required by the workflow anymore.
+- **Per-task during execute (OPTIONAL).** Only if a task introduces a new lint/tsc surface or you genuinely doubt the change. Not required by the workflow.
 
 **Skip when:**
 
@@ -23,7 +23,7 @@ Whole-branch verification protocol for your codebase. Primary use case is end-of
 - Commit is comment-only (no semantic LOC change) — both tiers.
 - The orchestrator passed `--skip-verify`.
 
-(The prior "≤ 5 LOC = tier 2 only" rule has been removed. End-of-plan diffs are usually larger; per-task tiny commits should just skip the whole skill — the end-of-plan run will cover them.)
+(Tiny per-task commits should skip this skill entirely — the end-of-plan run covers them. End-of-plan diffs are usually large enough that both tiers earn their keep.)
 
 ## Tier 1: auto-fix (silent)
 

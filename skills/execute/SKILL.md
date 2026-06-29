@@ -57,9 +57,7 @@ If found, capture the most recent path. Skip step 4 (plan already written; this 
 
 Invoke the `superpowers:writing-plans` skill with the spec path as input.
 
-**CRITICAL: when writing-plans completes its execution-mode handoff and asks the user "1. Subagent-Driven (recommended) 2. Inline Execution. Which?":**
-
-**AUTO-RESPOND `subagent-driven` (option 1).** Do NOT prompt the user. Sillok locks in subagent-driven execution as the canonical mode; re-prompting per feature is friction.
+When `writing-plans` reaches its execution-mode handoff ("1. Subagent-Driven 2. Inline Execution. Which?"), answer `subagent-driven` (option 1) automatically — don't prompt the user. Sillok locks in subagent-driven execution as the canonical mode; re-prompting per feature is just friction.
 
 After the plan is written and writing-plans hands off to subagent-driven-development:
 
@@ -91,7 +89,7 @@ Per-task implementation reviews (spec compliance + code quality) are owned by `s
 
 Do NOT layer extra mandatory gates per task on top. The skill itself decides when reviews can be batched or skipped (e.g., trivial mechanical refactors after a precedent task passed) — trust its judgment.
 
-**Optional `sillok:verify-gate` per task:** an earlier version of this stage required `sillok:verify-gate` between every task. That has been moved to step 8 (end-of-plan whole-branch) because it was disproportionate for trivial features. Per-task invocation is allowed when a task introduces a new lint/tsc surface or you genuinely doubt the change, but no longer required.
+**Optional `sillok:verify-gate` per task:** the mandatory verification is the end-of-plan whole-branch run in Step 8. `superpowers:subagent-driven-development` already runs spec + code-quality reviews per task, so a per-task gate is redundant — and disproportionate for trivial features. Invoke it per task only when a task introduces a new lint/tsc surface or you genuinely doubt the change.
 
 ## Step 8: Final whole-branch review — REQUIRED
 

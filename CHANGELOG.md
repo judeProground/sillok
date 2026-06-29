@@ -6,6 +6,84 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.3.2] — 2026-06-24
+
+### Fixed
+- **`/sillok-story` promotion no longer renames with an empty branch (#51).** Step 1 lost its `branch=$(git branch --show-current …)` capture in the 3.x refactor wave, so §3 promotion ran `git branch -m "$branch" …` with an empty var — the old branch was never renamed, pushed, or deleted (promotion broke mid-rename). The capture is restored alongside `$REPO`/`$BASE_BRANCH`.
+- **`/sillok-epic` re-sync no longer fails with HTTP 422 (#51).** Step 6 committed the PRD via a bare contents `PUT` with no `sha`, so re-syncing an already-committed PRD (an updated Notion/local source) 422'd; the existence handling was a non-runnable comment. It now fetches the existing blob sha and conditionally passes `-f sha=`, creating-or-updating.
+- **`/sillok-start` & `/sillok-add` restore the `--label area:<name>` slot (#51).** The copyable `create-issue.sh` block had its area slot demoted to prose in the #36 dedup, so org-mode issues (type → REST, priority → board field) were created with zero labels. The visible slot is back in the block. `story` is intentionally excluded — Story/Epic parents carry no area/nature labels by convention.
+
+### Added
+- **`tests/skill-area-slot.test.sh` regression guard (#51).** Asserts the `start`/`add` create-issue.sh blocks keep a visible `--label "area:<name>"` slot, closing the root-cause test gap that let the area-label regression ship: no test asserted the skill prompt surface (only the script mechanics).
+
+## [3.3.1] — 2026-06-18
+
+### Refactored
+- **`/sillok-epic` now creates its Epic via `scripts/create-issue.sh --plain` (#40).** Completes the #35 consolidation — epic was the one issue-creating skill still calling `gh api POST /issues` directly. `--plain` is a new bare-create mode that bypasses the helper's `orgMode` label/type fork: epic targets `epicRepo` (independent of the consumer's `orgMode`) and sets its Epic type via a non-fatal PATCH afterward, so it must not inherit consumer-mode labels.
+
+### Fixed
+- **`init/SKILL.md` intro prose corrected to the two-phase model (#40).** The auto-mode-contract paragraph still described the pre-#35 flat-step flow and named Step 8b as the tree emitter; phase1 emits the tree and Step 8b only reads it. Doc-only, no behavior change; the rewrite also drops a stray `MUST` on a procedural "every step must execute" line, which the emphasis-tiering rule #33 added reserves for irreversible-mutation gates.
+- **`/sillok-init` stops on a phase1 hard failure (#40).** Added an explicit guard so a non-zero phase1 exit (missing `git`/`gh`/`jq` or a non-repo CWD) halts init and surfaces stderr instead of proceeding with empty status vars — matters most under auto-mode, where nothing else watches the stderr soft-contract.
+
+## [3.3.0] — 2026-06-18
+
+### Added
+- **`/sillok-story` is now epic-aware.** It auto-suggests open Epics from `epicRepo` (same prompt shape as `/sillok-start` Step 4) and accepts `--parent <epicRepo#N>` to link the story as a cross-repo sub-issue via `addSubIssue`, completing the epic → story → feature hierarchy.
+- **`scripts/precompute-story.sh`** — new precompute script for `/sillok-story`: derives branch-mode (new vs. promote) and emits the `### Open epics` block, following the skill → precompute-script pattern.
+- **`scripts/lib/epics.sh`** — shared Open-epics discovery library (`sillok_open_epics_section`); the `### Open epics` block is now sourced from this shared lib by precompute-start, precompute-add, and precompute-story (no duplication).
+
+### Documented
+- **`/sillok-start`'s epicRepo auto-suggest** (present since 3.1.0) is now documented in `CLAUDE.md` and `CHANGELOG.md`. Previously the behavior shipped but was not mentioned in any doc.
+
+## [3.2.0] — 2026-06-18
+
+Behavior-preserving quality pass over the skills + scripts (story #31). No
+user-facing workflow change.
+
+### Changed
+- **Skill bodies: dropped changelog framing, tiered emphasis, trimmed descriptions (#33).** `SKILL.md` files are always-loaded instructions, so they now state the current rule + durable reason instead of narrating edit history ("now / prior / an earlier version / removed") — across `verify-gate`, `execute`, `init`. Demoted the two procedural CAPS in `execute` Step 4; irreversible-mutation gates (no-auto-merge, link-before-push, failure-demotion, propose gate) stay loud. Trimmed the redundant eight-flow enumeration in `gh-issue-management`'s description. Documented both conventions ("emphasis tiering", "no changelog in bodies") in `plugins/sillok/CLAUDE.md`.
+
+### Refactored
+- **Extracted `init`'s deterministic bash into `scripts/init-bootstrap.sh` (#35).** `skills/init/SKILL.md` dropped 674 → 365 lines; the detect/config/rules/shims/labels/project/priority/dirs work now lives in a standalone **two-phase** script that prints a `KEY=value` status block the skill reads with a field-reader (the two interactive/LLM steps — empty-case URL prompt, area-label classification — stay in the skill). Matches the existing skill → precompute-script pattern.
+- **Added `scripts/create-issue.sh` (#35).** Centralizes the `orgMode`-branched `gh api POST /issues` block that was duplicated across `/sillok-start`, `/sillok-add`, `/sillok-story`; reads `orgMode` from config itself and owns the API-version header.
+- **Deduped the `## Integration branch` parse into `sillok_parent_integration_branch` (#35)** in `lib/config.sh`, shared by `/sillok-start` Step 9b and `/sillok-end` PR-base resolution.
+
+### Fixed
+- Three intended micro-improvements surfaced during the refactor (no change on default config): the empty `worktree.copyFiles` case writes `[]` instead of the latent `[""]`; `/sillok-story`'s user-mode priority label follows `labels.defaults.priority` instead of a hardcoded `p3`; `/sillok-init` re-run honors a pasted board URL instead of silently dropping it.
+
+## [3.1.0] — 2026-06-17
+
+### Added
+- **`/sillok-epic` — validate a team PRD and create a light Epic in `epicRepo` for cross-repo parenting.** Reads a team PRD by path (`<category>/<project-name>/prd.md` in `epicRepo`), an interactive picker over discovered `*/prd.md`, or a Notion URL (when the Notion MCP is available), validates it against the team PRD convention (5 sections 배경/목표/실행/AI Agent Role/평가 + required frontmatter metadata + machine-parseable fields; required items block, recommended items warn), then creates a GitHub `Epic` issue in `epicRepo`. The Epic body is intentionally **light** — `## Summary` + `## Metadata` + `## PRD` (a link to the PRD path, plus the Notion source when synced), not the full PRD inline — and the command returns the `/sillok-start --parent <epicRepo>#<N>` line so sub-feature issues in other repos can parent to it.
+- **Rewrote the stale Epic template** in `templates/rules/gh-issue-conventions.md` to the team PRD format: the light Epic body shape (`## Summary` / `## Metadata` — 피쳐목표·Main/Sub·Sprint·개발기간·담당자·상태·숫자·출시일·평가 예정일 / `## PRD` link) plus a note that the PRD lives at `<category>/<project-name>/prd.md` in `epicRepo` (a living doc) and the Epic links to it rather than embedding it. Consumer projects pick up the refreshed template on the next `/sillok-init` re-run.
+- **Renamed `prdRepo` → `epicRepo`** (and `types.defaults.prd` → `types.defaults.epic`); PRDs are discovered generically at `<category>/<project-name>/prd.md` — no flat dir, no hard-coded category list. `/sillok-init` re-run migrates the legacy keys automatically (`scripts/migrate-config.sh`).
+
+## [3.0.4] — 2026-06-17
+
+### Fixed
+- **`/sillok-end` now self-assigns the PR to its author.** `gh pr create` was missing `--assignee`, so PRs were created with no assignee even though the issue is self-assigned at `/sillok-start`. The create call now passes `--assignee "@me"`, mirroring the issue self-assign convention. Covers all modes (single-issue, umbrella, story-finalize) since Step 6 is the single create call.
+
+## [3.0.3] — 2026-06-15
+
+### Fixed
+- **The `Priority` section in the `gh-issue-conventions` rule template is now org-mode aware (#20).** It previously documented priority only as `p1`–`p4` labels, contradicting the actual org-mode behavior where priority lives on the org-level **Priority issue field** projected onto the board (set by `/sillok-start` Step 10c via `sillok_issue_priority_set`, provisioned by `/sillok-init`) — org repos never get `p1`–`p4` labels (`bootstrap-labels.sh` skips them). The section now branches on `orgMode`, mirroring how the Type (REST) and Stage (Projects v2 field) sections document their mechanics: org repos get the issue-field table (`p1`–`p4` → `Urgent`/`High`/`Medium`/`Low` via `project.priorities`), user repos keep the `p1`–`p4` label list. Docs-only; consumer projects pick up the refreshed section on the next `/sillok-init` re-run (`refresh-rules.sh`).
+
+## [3.0.2] — 2026-06-12
+
+### Fixed
+- **org-mode Priority now uses GitHub's org-level Issue Fields, not regular project fields (#17).** On real org boards the "Priority" column is an org Issue Field *projected* onto the board — through the old Projects v2 API it reads as a single-select with `options: []` and item values `null`, so the `updateProjectV2ItemFieldValue` mutation shipped in 3.0.0 (#66) could never set it (priority failed silently). sillok now discovers the field via `organization.issueFields` and sets values on the issue via `setIssueFieldValue` (no board item-id lookup needed).
+  - **`/sillok-init` no longer misjudges a healthy projection as a broken field.** The previous Step 9c treated the empty-options reading as "not a real single-select" and prompted a rename/delete — which silently severs the projection. That gate is removed.
+  - **`/sillok-init` provisions the org Priority issue field when absent** via `createIssueField` (options Urgent/High/Medium/Low, colors PINK/RED/YELLOW/GREEN) and projects it onto the board — org Priority issue fields cannot be created in the GitHub GUI (preview, API-only). Creation needs org-admin permission; without it the step warns and continues (non-fatal).
+  - `project.priorityField` now names the **org issue field**, not a board field; `project.priorities` option names are unchanged (no schema migration). Re-run `/sillok-init` on org repos to create/verify the field.
+
+## [3.0.1] — 2026-06-11
+
+### Fixed
+- **Consumer shims are now marketplace-name-agnostic.** The shim's version-resolution one-liner hardcoded a `cache/sillok/sillok/<version>/` path, so shims went blind once sillok was installed from a differently-named marketplace. Shims now glob `cache/*/sillok/*/` and sort by the **version segment** (a plain path sort would let the marketplace name dominate), so the latest installed version wins across marketplaces. **Re-run `/sillok-init` once after reinstalling** to refresh the shims in each consumer project.
+
+### Changed
+- Schema/manifest URLs point at the plugin's home: `plugin.json` homepage/repository and the config `$schema` / schema `$id` (`https://raw.githubusercontent.com/judeProground/sillok/main/schema/v1.json`). The `$schema` URL is used only for editor validation — runtime never fetches it.
+
 ## [3.0.0] — 2026-06-11
 
 Major release: the skill-wrapper refactor (story #15) plus the backlog workflow (#33) and the org-mode Priority field (#66). Commands are now thin pointers; the substantive workflow lives in skills, with a new orchestrator, an automation mode, and a SessionStart hook. **No breaking changes for consumers** — all `/sillok-*` commands and existing shims keep working unchanged; the major bump reflects the architecture shift and the new auto-trigger surface.
@@ -117,7 +195,7 @@ Patch release: four bug fixes found while dogfooding v2.4.0 (story #46).
 - **New required prerequisites:** an organization with Issue Types configured (admin sets up Epic + Story; Feature/Task/Bug auto-exist), and a Projects v2 board with the 5 Status options + auto-add and item-closed-to-Done workflows enabled.
 
 ### Added
-- **Cross-repo PRD parent linking.** `--parent owner/repo#N` and full URL forms accepted by `/sillok-start`. Sub-issue API works across same-org repos. Open PRD epics auto-suggested when `prdRepo` config is set.
+- **Cross-repo PRD parent linking.** `--parent owner/repo#N` and full URL forms accepted by `/sillok-start`. Sub-issue API works across same-org repos. Open PRD epics auto-suggested when `epicRepo` config is set.
 - **Auto-assignee.** `/sillok-start` and `/sillok-story` assign the gh-authenticated user (`@me`).
 - **Linked branches (Development panel).** `/sillok-start` and `/sillok-story` push the new branch and register `createLinkedBranch` so the issue's Development panel populates from creation.
 - **Nature label class.** `improvement`, `refactor`, `infra`, `docs`, `security`, `performance` — orthogonal to Issue Type.

@@ -7,7 +7,7 @@ Design flow when the resolved issue is a `Story` and the user chose option (a) i
 Seed `superpowers:brainstorming` differently — the goal is architecture and decomposition, not a code-level spec:
 
 - Story title + full body (Integration branch, Context, Non-goals)
-- Cross-repo PRD body (if `prdRepo` configured)
+- Cross-repo PRD body (if `epicRepo` configured)
 - Framing: "This is a Story (composite tracking issue). Brainstorm the architecture (tech choices, data flow, component boundaries) and the sub-issue breakdown. No code-level spec — the output goes into the story body's Architecture and Sub-issues sections."
 
 The brainstorming output is stored as `$architecture_content` (Architecture prose) and `$sub_issues_plan` (the planned breakdown) for the story-body update below.

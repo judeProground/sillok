@@ -94,5 +94,27 @@ if bash "$SCRIPT" 2>/dev/null; then
 fi
 pass "no-arg guarded"
 
+echo "test: legacy keys migrated — prdRepo->epicRepo, prdDir/epicDir dropped, types.defaults.prd->.epic"
+cat > "$TMP/c9.json" <<'JSON'
+{ "repo": "x/y", "baseBranch": "main", "prdRepo": "org/projects", "prdDir": "prd", "types": { "defaults": { "prd": "Epic" } } }
+JSON
+bash "$SCRIPT" "$TMP/c9.json" "$TMP/template.json" >/dev/null
+[[ "$(jq -r '.epicRepo' "$TMP/c9.json")" == "org/projects" ]] || fail "c9: prdRepo not renamed to epicRepo"
+[[ "$(jq 'has("epicDir")' "$TMP/c9.json")" == "false" ]] || fail "c9: obsolete epicDir must not be created"
+[[ "$(jq -r '.types.defaults.epic' "$TMP/c9.json")" == "Epic" ]] || fail "c9: types.defaults.prd not renamed to .epic"
+[[ "$(jq 'has("prdRepo")' "$TMP/c9.json")" == "false" ]] || fail "c9: old prdRepo still present"
+[[ "$(jq 'has("prdDir")' "$TMP/c9.json")" == "false" ]] || fail "c9: old prdDir still present"
+[[ "$(jq -r '.types.defaults | has("prd")' "$TMP/c9.json")" == "false" ]] || fail "c9: old types.defaults.prd still present"
+pass "legacy keys renamed to epic*"
+
+echo "test: legacy rename is idempotent / does not clobber an existing epicRepo"
+cat > "$TMP/c10.json" <<'JSON'
+{ "repo": "x/y", "baseBranch": "main", "prdRepo": "old/one", "epicRepo": "new/two" }
+JSON
+bash "$SCRIPT" "$TMP/c10.json" "$TMP/template.json" >/dev/null
+[[ "$(jq -r '.epicRepo' "$TMP/c10.json")" == "new/two" ]] || fail "c10: existing epicRepo clobbered by legacy prdRepo"
+[[ "$(jq 'has("prdRepo")' "$TMP/c10.json")" == "false" ]] || fail "c10: stale prdRepo not removed"
+pass "rename never clobbers existing new key"
+
 echo
 echo "All migrate-config.sh tests passed."

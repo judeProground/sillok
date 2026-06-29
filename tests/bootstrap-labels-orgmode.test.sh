@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# bootstrap-labels.sh orgMode gating (#66): org repos track priority on the
-# Projects v2 Priority field, so p1–p4 labels must NOT be created there;
-# user repos keep them. Type labels were already gated the same way; nature
-# labels are created in both modes. Hermetic: gh is stubbed to a call logger.
+# bootstrap-labels.sh orgMode gating (#66, #17): org repos track priority on the
+# org-level Priority issue field (set via setIssueFieldValue, #17), so p1–p4
+# labels must NOT be created there; user repos keep them. Type labels were
+# already gated the same way; nature labels are created in both modes.
+# Hermetic: gh is stubbed to a call logger.
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

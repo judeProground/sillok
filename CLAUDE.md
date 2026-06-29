@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-This is **sillok** — a Claude Code plugin, not an application that uses one. The unit of shipping is a `.claude-plugin/plugin.json` manifest plus the slash commands, skills, scripts, schema, and rule templates that get installed into _other_ projects via `/plugin marketplace add judeProground/sillok`.
+This is **sillok** — a Claude Code plugin, not an application that uses one. The unit of shipping is a `.claude-plugin/plugin.json` manifest plus the slash commands, skills, scripts, schema, and rule templates that get installed into _other_ projects via `/plugin marketplace add judeProground/sillok`. The repo doubles as its own single-plugin marketplace: the root `.claude-plugin/marketplace.json` registers this plugin with `source: "./"`.
 
-Concretely, the plugin is seven thin wrapper commands under `commands/` (pointer-only; each invokes its stage skill), eleven skills under `skills/` — eight workflow skills (`workflow` orchestrator + `start`/`add`/`design`/`execute`/`end`/`story`/`init` stage skills) and three reference skills (`verify-gate`, `verify-spec-gate`, `gh-issue-management`) — a SessionStart hook under `hooks/`, helper bash scripts under `scripts/`, a JSON config schema in `schema/v1.json`, and the rule + config templates copied into consumer projects by `/sillok-init` (under `templates/`).
+Concretely, the plugin is eight thin wrapper commands under `commands/` (pointer-only; each invokes its stage skill), twelve skills under `skills/` — eight workflow skills (`workflow` orchestrator + `start`/`add`/`design`/`execute`/`end`/`story`/`init` stage skills), one standalone skill (`epic`), and three reference skills (`verify-gate`, `verify-spec-gate`, `gh-issue-management`) — a SessionStart hook under `hooks/`, helper bash scripts under `scripts/`, a JSON config schema in `schema/v1.json`, and the rule + config templates copied into consumer projects by `/sillok-init` (under `templates/`).
 
 Do **not** run `/sillok-init` inside this repo — it's for downstream projects, not for the plugin's own development.
 
@@ -44,7 +44,7 @@ Why: bash is much cheaper than LLM tool round-trips for state checks, and printi
 
 Two hard contracts from the refactor (story #15): `${CLAUDE_PLUGIN_ROOT}` script invocations live in SKILL.md bodies ONLY (substitution is guaranteed for skill content; subfiles like `skills/end/pr-body-templates.md` are read raw, so they stay pure prose/templates), and wrappers never use `$ARGUMENTS` (consumer shims raw-read them) — argument pass-through is prose. Both are lint-enforced (see Testing).
 
-Stage chaining is owned by the `sillok:workflow` orchestrator skill: stage skills end with a one-line handoff ("invoke `sillok:workflow` to decide the next step"), and only the orchestrator knows the transition map and reads the `automation` config (`automation.fullAuto: true` runs start → design → execute → end unprompted, stopping after PR creation; absent key == propose mode). `init` and `add` sit outside the chain and are never auto-routed. Stage skills carry `user-invocable: false` and deferral-marker descriptions ("Internal sillok stage skill — enter via the `/sillok-<stage>` command or a `sillok:workflow` handoff"); the workflow skill is the single auto-fire entry point ("Use when..." trigger description).
+Stage chaining is owned by the `sillok:workflow` orchestrator skill: stage skills end with a one-line handoff ("invoke `sillok:workflow` to decide the next step"), and only the orchestrator knows the transition map and reads the `automation` config (`automation.fullAuto: true` runs start → design → execute → end unprompted, stopping after PR creation; absent key == propose mode). `init`, `add`, and `epic` sit outside the chain and are never auto-routed. Stage skills carry `user-invocable: false` and deferral-marker descriptions ("Internal sillok stage skill — enter via the `/sillok-<stage>` command or a `sillok:workflow` handoff"); the workflow skill is the single auto-fire entry point ("Use when..." trigger description).
 
 ### SessionStart hook
 
@@ -52,11 +52,12 @@ Stage chaining is owned by the `sillok:workflow` orchestrator skill: stage skill
 
 ### Config resolution: project overrides plugin default
 
-`scripts/lib/` is a shared library directory with four modules. Every script sources the ones it needs via `SCRIPT_DIR=$(cd …) && source "$SCRIPT_DIR/lib/<module>.sh"`.
+`scripts/lib/` is a shared library directory with five modules. Every script sources the ones it needs via `SCRIPT_DIR=$(cd …) && source "$SCRIPT_DIR/lib/<module>.sh"`.
 
 - **`config.sh`** — config reader (`sillok_config <key>` / `sillok_config_array <key>` / `sillok_config_required <key>`)
+- **`epics.sh`** — shared Open-epics discovery (`sillok_open_epics_section`); queries `epicRepo` for open Epic issues and emits the `### Open epics` markdown block consumed by precompute-start, precompute-add, and precompute-story
 - **`issue-types.sh`** — wraps the GitHub REST API for org-level Issue Types (v2)
-- **`project.sh`** — wraps GraphQL mutations for Projects v2 (add item, set status)
+- **`project.sh`** — wraps GraphQL mutations for Projects v2 (add item, set status) and the org Priority issue field (resolve/set/ensure via `setIssueFieldValue`/`createIssueField`)
 - **`dev-link.sh`** — wraps `createLinkedBranch` GraphQL so issues show linked branches in the Development panel
 
 Config precedence:
@@ -64,9 +65,9 @@ Config precedence:
 1. `<git-root>/.claude/sillok/workflow.config.json` (consumer project)
 2. `${CLAUDE_PLUGIN_ROOT}/templates/workflow.config.json` (plugin fallback; when the env var is unset, config.sh derives the plugin root from its own file location — #45)
 
-Inside this repo's own tests, `CLAUDE_PLUGIN_ROOT` is set to the repo root so the template acts as the default; test cases construct temp projects with their own `.claude/sillok/workflow.config.json` to exercise the override path (see `tests/config.test.sh`).
+Inside this repo's own tests, `CLAUDE_PLUGIN_ROOT` is set to the plugin root (the repo root, derived in each test as the parent of `tests/`) so the template acts as the default; test cases construct temp projects with their own `.claude/sillok/workflow.config.json` to exercise the override path (see `tests/config.test.sh`).
 
-When adding a config key: update `schema/v1.json` AND `templates/workflow.config.json` together — the schema validates editor autocomplete, the template is the runtime default.
+When adding a config key: update `schema/v1.json` AND `templates/workflow.config.json` together — the schema validates editor autocomplete, the template is the runtime default. The `epicRepo` key (added in 3.1.0; a separate PRD/epic repo, e.g. `acme/projects`) is where `/sillok-epic` reads team PRDs from — at `<category>/<project-name>/prd.md`, discovered generically via a tree walk (no flat dir, no hard-coded categories).
 
 ### Branch-prefix templating
 
@@ -97,7 +98,7 @@ Preserve this when modifying init/bootstrap logic. Consumer projects re-run `/si
 
 ### Command shortcut shims
 
-Claude Code namespaces plugin commands (`/sillok:sillok-start`). Users prefer the shorter `/sillok-start` form, which requires standalone-style files at `<project>/.claude/commands/sillok-*.md`. `scripts/write-shim-commands.sh` writes 6 pointer-only shim files during `/sillok-init`; each shim resolves the latest installed plugin version at runtime (`ls -d ~/.claude/plugins/cache/sillok/sillok/*/ | sort -V | tail -1`) and delegates to the canonical command. So plugin upgrades require no re-init for shim freshness.
+Claude Code namespaces plugin commands (`/sillok:sillok-start`). Users prefer the shorter `/sillok-start` form, which requires standalone-style files at `<project>/.claude/commands/sillok-*.md`. `scripts/write-shim-commands.sh` writes 7 pointer-only shim files during `/sillok-init`; each shim resolves the latest installed plugin version at runtime — marketplace-agnostically, sorting by the version segment so the marketplace name can't dominate (`ls -d ~/.claude/plugins/cache/*/sillok/*/ | awk -F/ '{print $(NF-1), $0}' | sort -V | tail -1 | cut -d' ' -f2-`) — and delegates to the canonical command. So plugin upgrades require no re-init for shim freshness, and reinstalling from a different marketplace keeps old shims working.
 
 The `sillok-shim: true` frontmatter marker identifies sillok-managed shims for idempotent refresh. Foreign files at the same path (no marker) are preserved untouched — users can write their own custom command at `.claude/commands/sillok-start.md` and sillok will skip it.
 
@@ -116,6 +117,7 @@ v2.0 replaced label-based type/stage tracking with GitHub-native primitives:
 - **Issue Types** — `lib/issue-types.sh` calls the org-level REST API (`/orgs/:org/issue-types`) to set type (Feature, Bug, Task, etc.) on issues instead of `type:*` labels.
 - **Projects v2** — `lib/project.sh` uses GraphQL to add issues to a project board and set the Status single-select field, replacing `stage:*` labels.
 - **Development panel linking** — `lib/dev-link.sh` calls `createLinkedBranch` so branches appear in the issue's Development section without waiting for a PR.
+- **Priority (v3, org issue field)** — `lib/project.sh` sets priority via `setIssueFieldValue` on the *issue*, NOT `updateProjectV2ItemFieldValue` on the board item. On org boards "Priority" is an org **issue field** projected onto the board: through the Projects v2 API it reads as a single-select with `options: []` / item values `null`, so the board-item mutation silently no-ops (the #66 → #17 bug). It's discovered via `organization.issueFields` and, when absent, created by `/sillok-init` via `createIssueField` — org Priority issue fields are **API-only, not GUI-creatable**, and creation needs org-admin (non-fatal warn without it). `project.priorityField` names this org issue field; `project.priorities` maps `p1`–`p4` to its option names.
 - **Migration** — `scripts/migrate-v1-to-v2.sh` converts an existing v1 repo (removes old labels, sets Issue Types, moves items to a project).
 
 `orgMode` in config gates these features: when `false` (user repos), Issue Types and project mutations are skipped since they require org-level APIs.
@@ -126,6 +128,10 @@ v2.0 replaced label-based type/stage tracking with GitHub-native primitives:
 |--------|---------|
 | `precompute-{start,design,execute,end}.sh` | State derivation for each stage skill |
 | `precompute-add.sh` | Lightweight state derivation for /sillok-add (no branch guard, no milestone section) |
+| `precompute-story.sh` | State derivation for /sillok-story: branch-mode classification (new vs. promote) + open epics from epicRepo |
+| `precompute-epic.sh` | State derivation for /sillok-epic: resolves epicRepo, classifies the source (path/picker/notion), and discovers `*/prd.md` candidates in epicRepo via a tree walk |
+| `init-bootstrap.sh` | Two-phase deterministic bootstrap for /sillok-init: `phase1` (Steps 1–8: detect repo/stack/copyFiles, write config, rules, shims, CLAUDE.md, emit project-tree) + `phase2` (Steps 9–10: labels, project + priority field, spec/plan dirs). Prints a `KEY=value` status block on stdout the skill reads with a field-reader (Step 8b area classification + URL prompt stay in the skill, between the phases) |
+| `create-issue.sh` | Creates a GH issue, branching on `orgMode` (org: `-f type=` + board Priority; user: type/priority labels) + the API-version header; prints the issue URL. Shared by /sillok-start, /sillok-add, /sillok-story; /sillok-epic passes `--plain` (bare create — bypasses the orgMode fork since epicRepo is cross-repo and its Epic type is PATCHed non-fatally after) |
 | `setup-feature-worktree.sh` | Creates worktree + branch for a new issue |
 | `bootstrap-labels.sh` | Idempotent GitHub label creation |
 | `project-tree.sh` | Emits a pruned directory tree (junk-removed, no depth cap) for area-label classification |
@@ -136,14 +142,15 @@ v2.0 replaced label-based type/stage tracking with GitHub-native primitives:
 | `migrate-v1-to-v2.sh` | Migrates a repo from v1 (label-based types/stages) to v2 (Issue Types + Projects v2) |
 | `migrate-config.sh` | Deep-merges template defaults into an existing project config (preserves user values) on `/sillok-init` re-run |
 | `refresh-rules.sh` | Overwrites project rule files from `templates/rules/` when content differs, on `/sillok-init` re-run |
-| `lib/config.sh` | Shared config reader (sourced by all other scripts) |
+| `lib/config.sh` | Shared config reader (sourced by all other scripts); also `sillok_branch_prefix_*` and `sillok_parent_integration_branch` (the parent-story `## Integration branch` parse shared by /sillok-start Step 9b and /sillok-end PR-base resolution) |
+| `lib/epics.sh` | Shared Open-epics discovery (`sillok_open_epics_section`) — emits the `### Open epics` block used by precompute-start, precompute-add, and precompute-story |
 | `lib/issue-types.sh` | GitHub Issue Types REST API helpers |
-| `lib/project.sh` | Projects v2 GraphQL helpers (add item, set status) |
+| `lib/project.sh` | Projects v2 GraphQL helpers (add item, set status) + org Priority issue field (resolve/set/ensure) |
 | `lib/dev-link.sh` | Development panel branch linking via GraphQL |
 
 ## Testing
 
-Tests live in `tests/*.test.sh`. Each test is a standalone bash script that creates a temp directory, exercises one script, and prints `pass`/`fail` lines. To add a new test: create `tests/<script-name>.test.sh`, define `pass()`/`fail()` helpers, and follow the existing pattern of setting up a temp project with `CLAUDE_PLUGIN_ROOT` pointing at the repo root.
+Tests live in `tests/*.test.sh`. Each test is a standalone bash script that creates a temp directory, exercises one script, and prints `pass`/`fail` lines. To add a new test: create `tests/<script-name>.test.sh`, define `pass()`/`fail()` helpers, and follow the existing pattern of setting up a temp project with `CLAUDE_PLUGIN_ROOT` pointing at the plugin root (the repo root).
 
 Three lint tests enforce the skill-wrapper architecture: `command-wrapper-lint.test.sh` (every `commands/sillok-*.md` is a ≤15-line pointer wrapper — no `${CLAUDE_PLUGIN_ROOT}`, no `$ARGUMENTS`, no `## Step`), `skill-frontmatter.test.sh` (stage skills declare `name` + `user-invocable: false` + a deferral-marker description; among the workflow-chain skills, only `skills/workflow` gets "Use when..." trigger phrasing — the three reference skills keep theirs), and `skill-subfile-lint.test.sh` (`${CLAUDE_PLUGIN_ROOT}` is forbidden in skill subfiles — substitution only happens in SKILL.md bodies). Markdown skill bodies themselves are LLM-executed, so structural contracts are grep-anchored against `skills/<stage>/SKILL.md` (e.g. `sillok-init-detection.test.sh`, `sillok-init-migration.test.sh`).
 
@@ -155,15 +162,30 @@ Three lint tests enforce the skill-wrapper architecture: `command-wrapper-lint.t
 - **Sourced libs may run under zsh** (Claude Code's Bash tool isn't always bash). The 3 sourced libs (`project`/`dev-link`/`issue-types`.sh) and `config.sh` resolve their own directory via an explicit shell branch — bash `${BASH_SOURCE[0]}`, zsh eval-deferred `${(%):-%x}` — because with `${BASH_SOURCE[0]:-$0}` the `$0` fallback breaks under zsh sh-emulation (POSIX_ARGZERO resolves `$0` to `zsh`, so the lib dir becomes cwd), and zsh <= 5.8.1 additionally trips nounset on the unset array subscript before the `:-` default applies. Sourced libs also avoid `BASH_REMATCH` (empty in zsh — use parameter expansion). `tests/lib-zsh-compat.test.sh` guards this, asserting execution through the loaded chain, not just function definition. Standalone scripts (shebang) always run under bash, so bare `${BASH_SOURCE[0]}` is fine there.
 - `.editorconfig`: 2-space indent, LF endings, trim trailing whitespace, final newline. Markdown files keep trailing whitespace (intentional for line breaks).
 
+## Skill prose conventions
+
+`SKILL.md` bodies are always-loaded instructions, so prose discipline is part of the contract:
+
+- **Emphasis tiering.** Reserve the strongest markers (`HARD GATE`, `NEVER`, `MUST`) for **irreversible-mutation gates** — never auto-merge (`end` Step 10), link-before-push ordering (`start` Step 10b, the create-only `createLinkedBranch`), full-auto failure-demotion (`workflow`), and "no first gh/git mutation before the user confirms" (`workflow` propose gate). Ordinary procedural steps get plain imperative + a one-clause reason, not caps. When every step shouts, the genuinely irreversible ones stop standing out.
+- **No changelog in skill bodies.** State the *current* rule and the durable reason for it; don't write "now / previously / an earlier version / this was removed". Git history and `CHANGELOG.md` hold the edit trail — a model executing the skill only needs the rule that applies today.
+
+## Reviewing a behavior-preserving refactor
+
+A "does it still work?" pass is necessary but not sufficient for a refactor PR — behavior preservation is the *start* of the review, not the verdict. After confirming behavior, run three more lenses (the #40 post-mortem: the #35 refactor shipped with stale intro prose and a half-adopted helper that a behavior-only review never thought to look for):
+
+- **(a) self-consistency** — does the rewritten prose accurately describe its *own* new structure? `init/SKILL.md` moved to a two-phase bootstrap but its intro still described the old flat-step model and named the wrong step as the tree emitter.
+- **(b) convention-compliance** — does it honor conventions added *recently, possibly in a sibling PR*? #33 added the emphasis-tiering rule (reserve `MUST`/`NEVER` for irreversible-mutation gates) but missed `init`'s intro, which still carried a `MUST` on a procedural "every step must execute" line; the separate #35 refactor didn't catch it either. PR-isolated reviews miss this — cross-check against the conventions in this file, especially Skill prose conventions.
+- **(c) completeness** — is the change fully applied, not partial? When a refactor extracts a shared helper, confirm *every* call site adopts it — or document why one legitimately can't (`/sillok-epic` bypasses `create-issue.sh`'s orgMode fork via `--plain`, on purpose).
+
 ## Release process
 
-Versions live in **three** places that must move together. Bumping git tag alone is not sufficient — Claude Code reads manifest versions to detect updates:
+Versions live in **three** places that must move together. Bumping the git tag alone is not sufficient — Claude Code reads manifest versions to detect updates:
 
 - `.claude-plugin/plugin.json` → `version`
-- `.claude-plugin/marketplace.json` → `plugins[0].version`
+- `.claude-plugin/marketplace.json` → the sillok entry's `version`
 - `CHANGELOG.md` → new entry under `[Unreleased]`
 
-Grep for the old version string before each release: `grep -rn "$OLD_VERSION" .claude-plugin/ CHANGELOG.md`. After tag push, also run `gh release create v$NEW_VERSION` for marketplace discoverability.
+Grep for the old version string before each release: `grep -rn "$OLD_VERSION" .claude-plugin/ CHANGELOG.md`.
 
 ## Skills bundled
 
@@ -175,8 +197,9 @@ Workflow skills (story #15 refactor):
 - `sillok:design` — brainstorm + spec, paste spec into issue body, status In Design (subfile: `story-mode.md` for story-design).
 - `sillok:execute` — write plan, subagent-driven execution, end-of-plan verify-gate, status In Progress.
 - `sillok:end` — push, PR per pr-convention, status In QA, parent legacy-checkbox update; never auto-merges (subfile: `pr-body-templates.md`).
-- `sillok:story` — create or promote-to a story (parent issue + integration branch + worktree).
+- `sillok:story` — create or promote-to a story (parent issue + integration branch + worktree); auto-suggests open Epics from `epicRepo` and accepts `--parent <epicRepo#N>` to attach the story as a cross-repo sub-issue via `addSubIssue` (completing epic → story → feature).
 - `sillok:init` — project bootstrap; idempotent; outside the workflow chain (always interactive, never auto-routed).
+- `sillok:epic` — validate a team PRD and create a light Epic in `epicRepo` for cross-repo parenting; outside the workflow chain (never auto-routed by `sillok:workflow`, no stage handoff). Reads PRDs at `<category>/<project-name>/prd.md` in `epicRepo` (generic `*/prd.md` discovery, no flat dir / hard-coded categories); invoked via `/sillok-epic <path>/prd.md` or `/sillok-epic <notion-url> <category>/<project>`.
 
 Stage skills (everything above except `workflow`) carry `user-invocable: false` and deferral-marker descriptions leading with "Internal sillok stage skill — enter via the `/sillok-<stage>` command or a `sillok:workflow` handoff" — pointing entry at the wrappers and the orchestrator.
 

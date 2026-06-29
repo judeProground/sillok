@@ -139,3 +139,16 @@ sillok_branch_prefix_resolve() {
   result=${result//\{user\}/$user}
   printf '%s' "$result"
 }
+
+# Read the integration branch named under the `## Integration branch` heading
+# in a parent issue's body. Prints the branch name (backticks stripped) or
+# empty. The caller must gate same-repo-only before calling — cross-repo PRD
+# epics have no in-repo integration branch. Shared by /sillok-start (Step 9b)
+# and /sillok-end (PR base resolution) so the parse lives in one place.
+# zsh-safe: the match runs inside awk (no BASH_REMATCH / [[ =~ ]]).
+sillok_parent_integration_branch() {
+  local n="$1" repo="${2:-$(sillok_config repo)}" body
+  body=$(gh issue view "$n" --repo "$repo" --json body --jq '.body' 2>/dev/null || echo "")
+  printf '%s' "$body" \
+    | awk '/^## Integration branch/{flag=1; next} /^## /{flag=0} flag && /^`/{gsub("`",""); print; exit}'
+}

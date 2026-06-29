@@ -16,8 +16,8 @@ Extract from the user's input:
 - Optional positional `[prd-path]` — a markdown file path. Most starts have no PRD; that's expected.
 - Optional flag `--parent <value>` — issue reference. Three forms accepted:
   - `--parent 42` — same-repo issue #42
-  - `--parent myorg/prd#42` — cross-repo issue
-  - `--parent https://github.com/myorg/prd/issues/42` — URL form, parsed to `myorg/prd#42`
+  - `--parent myorg/projects#42` — cross-repo issue
+  - `--parent https://github.com/myorg/projects/issues/42` — URL form, parsed to `myorg/projects#42`
 
 Parse `--parent` into `parent_owner`, `parent_repo`, `parent_n`. If only a number is given, `parent_owner` = current repo owner and `parent_repo` = current repo name.
 
@@ -64,7 +64,7 @@ Then:
 3. **Branch type** comes precomputed: read the Adopt block's `Branch type:` line as ground truth (the script lowercases the issue type and defaults unknown to `feature` — don't re-derive it).
 4. Continue with **Step 9 (slug + branch)** using the issue's title — the non-ASCII translation rule applies as usual — then Step 9b (the Adopt block's `Parent:` line feeds the integration-branch lookup), Step 10, 10b, and 10c.
 5. **Step 10c status nuance:** after `ADOPT-OK`, set status `todo` as usual (this is the Backlog → Todo promotion). After a confirmed `ADOPT-WARN`, do NOT touch the status — skip the `sillok_project_status_set` call and keep the board as-is.
-   **Priority is never touched in adopt mode** (`ADOPT-OK` or `ADOPT-WARN` alike): skip the `sillok_project_priority_set` call — an adopted issue keeps whatever board Priority it already has, for the same KEEP reason: the board state predates this run and sillok must not clobber it.
+   **Priority is never touched in adopt mode** (`ADOPT-OK` or `ADOPT-WARN` alike): skip the `sillok_issue_priority_set` call — an adopted issue keeps whatever priority it already has, for the same KEEP reason: the state predates this run and sillok must not clobber it.
 6. In the Step 11 output, mark the issue line as `(adopted #N)`.
 
 ## Language
@@ -136,38 +136,20 @@ Resolve type label (`<type>`) to Issue Type name via config:
 - `bug` → use `Bug` (literal)
 - `task` → use `Task` (literal)
 
-Read orgMode from config (`sillok_config orgMode`). Branch the REST call:
-
-**Org mode (`orgMode=true`):**
+Create the issue via `scripts/create-issue.sh`, which reads `orgMode` from config and owns the fork (org mode: `-f type=` + NO priority label, since priority lands on the board's Priority field in Step 10c; user mode: `labels[]=<type-lowercased>` + `labels[]=<priority>`). Pass BOTH the resolved Issue Type name and the lowercase type label — the script picks the right one per mode. The block includes an `--label area:<name>` slot — replace `<name>` with the matching `area:*` label (see `labels.areas` in config), or delete that line when no area applies. Omit `--priority` to default to `labels.defaults.priority`.
 
 ```bash
-issue_url=$(gh api -X POST \
-  -H "X-GitHub-Api-Version: 2026-03-10" \
-  "/repos/$REPO/issues" \
-  -f title="<title>" \
-  -f body="<body>" \
-  -f type="<Issue-Type-name>" \
-  -f "assignees[]=$(gh api user --jq .login)" \
-  -f "labels[]=<area-if-any>" \
-  --jq '.html_url')
+issue_url=$(bash ${CLAUDE_PLUGIN_ROOT}/scripts/create-issue.sh \
+  --repo "$REPO" \
+  --title "<title>" \
+  --type-name "<Issue-Type-name>" --type-label "<type-lowercased>" \
+  --priority "<priority>" \
+  --label "area:<name>" \
+  --body-file - <<'BODY'
+<body>
+BODY
+)
 ```
-
-**User mode (`orgMode=false`):**
-
-```bash
-issue_url=$(gh api -X POST \
-  -H "X-GitHub-Api-Version: 2026-03-10" \
-  "/repos/$REPO/issues" \
-  -f title="<title>" \
-  -f body="<body>" \
-  -f "assignees[]=$(gh api user --jq .login)" \
-  -f "labels[]=<priority>" \
-  -f "labels[]=<type-lowercased>" \
-  -f "labels[]=<area-if-any>" \
-  --jq '.html_url')
-```
-
-(Differences: org mode has `-f type=X` and NO priority label — priority is set on the board's Priority field in Step 10c; user mode has `-f labels[]=<type-lowercased>` and `-f labels[]=<priority>` instead.)
 
 Capture `<N>` by parsing the URL's last segment.
 
@@ -217,10 +199,9 @@ If parent is same-repo, check for integration branch as before. If cross-repo, a
 ```bash
 if [[ -n "$parent_n" ]]; then
   if [[ "$parent_owner/$parent_repo" == "$REPO" ]]; then
-    # Same repo: check for integration branch in parent body
-    parent_body=$(gh issue view "$parent_n" --repo "$REPO" --json body --jq '.body')
-    integration_branch=$(echo "$parent_body" \
-      | awk '/^## Integration branch/{flag=1; next} /^## /{flag=0} flag && /^`/{gsub("`",""); print; exit}')
+    # Same repo: read the parent's integration branch via the shared helper
+    # (lib/config.sh, also used by /sillok-end's PR-base resolution).
+    integration_branch=$(sillok_parent_integration_branch "$parent_n" "$REPO")
     if [[ -n "$integration_branch" ]]; then
       BASE_BRANCH="$integration_branch"
     else
@@ -281,17 +262,18 @@ source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/project.sh"
 ITEM_ID=$(sillok_project_item_add "$issue_url")
 sillok_project_status_set "$ITEM_ID" todo
 
-# Org mode only: priority lives on the board's Priority field (no p-label was
-# applied in Step 7). <priority-key> = the confirmed priority from Step 6
-# (default: the labels.defaults.priority config key). User mode skips this —
-# the p-label from Step 7 is the priority record there.
+# Org mode only: priority lives on the org-level Priority *issue field* (set on
+# the issue itself, then projected onto the board — no p-label was applied in
+# Step 7). <priority-key> = the confirmed priority from Step 6 (default: the
+# labels.defaults.priority config key). User mode skips this — the p-label from
+# Step 7 is the priority record there.
 if [[ "$(sillok_config orgMode)" == "true" ]]; then
-  sillok_project_priority_set "$ITEM_ID" "<priority-key>" \
-    || echo "[sillok] priority not set — re-run /sillok-init to create/map the board's Priority field" >&2
+  sillok_issue_priority_set "$issue_url" "<priority-key>" \
+    || echo "[sillok] priority not set — re-run /sillok-init to create the org Priority issue field" >&2
 fi
 ```
 
-Priority failure is NON-FATAL: the issue, branch, and worktree exist either way — surface the warning and continue (a board initialized before the org-mode priority split has no Priority field until `/sillok-init` is re-run). **Adopt mode skips this call entirely** — see the adopt rules above.
+Priority failure is NON-FATAL: the issue, branch, and worktree exist either way — surface the warning and continue (a board whose org never had a Priority issue field provisioned has nothing to set until `/sillok-init` is re-run, which creates it). **Adopt mode skips this call entirely** — see the adopt rules above.
 
 ## Step 11: Output
 
@@ -302,7 +284,7 @@ Print:
 - Worktree: `.worktrees/<slug>` — the next stage runs from there
 - Project item: `<ITEM_ID>`
 - Status: `Todo`
-- Priority: `<priority>` (org mode: board Priority field; user mode: `p*` label)
+- Priority: `<priority>` (org mode: org Priority issue field; user mode: `p*` label)
 - Linked branch: ✓
 
 ## Handoff

@@ -20,8 +20,8 @@ parse_parent() {
 # Test cases
 expected_outputs=(
   "42::LOCAL 42"
-  "myorg/prd#42::CROSS myorg prd 42"
-  "https://github.com/myorg/prd/issues/42::URL myorg prd 42"
+  "myorg/projects#42::CROSS myorg projects 42"
+  "https://github.com/myorg/projects/issues/42::URL myorg projects 42"
   "garbage::INVALID"
 )
 

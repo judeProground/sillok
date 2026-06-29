@@ -37,6 +37,9 @@ If precompute output contains `### Mode: story-finalize`, the current branch IS 
 For non-story-finalize PRs, the PR base depends on whether the active issue has a parent story with an integration branch:
 
 ```bash
+# precompute-end sources config.sh in its own subshell, so source it here too
+# (this Bash block needs sillok_config + sillok_parent_integration_branch).
+source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/config.sh"
 PR_BASE=$(sillok_config baseBranch)   # default = configured baseBranch (usually main)
 if [[ "$MODE" == "single-issue" || "$MODE" == "umbrella" ]]; then
   # Only same-repo parents can supply an integration branch in this repo.
@@ -44,9 +47,8 @@ if [[ "$MODE" == "single-issue" || "$MODE" == "umbrella" ]]; then
   # through to the configured baseBranch — they have no in-repo branch.
   parent_n=$(gh issue view "$N" --repo "$REPO" --json body --jq '.body' | grep -oE '^Parent: #[0-9]+' | head -1 | sed 's/Parent: #//')
   if [[ -n "$parent_n" ]]; then
-    parent_body=$(gh issue view "$parent_n" --repo "$REPO" --json body --jq '.body')
-    integration_branch=$(echo "$parent_body" \
-      | awk '/^## Integration branch/{flag=1; next} /^## /{flag=0} flag && /^`/{gsub("`",""); print; exit}')
+    # Shared parse with /sillok-start Step 9b (lib/config.sh).
+    integration_branch=$(sillok_parent_integration_branch "$parent_n" "$REPO")
     if [[ -n "$integration_branch" ]]; then
       PR_BASE="$integration_branch"
     fi
@@ -106,9 +108,12 @@ gh pr create \
   --repo "$REPO" \
   --base "$PR_BASE" \
   --head <branch> \
+  --assignee "@me" \
   --title "<active issue title> (#<N>)" \
   --body "$PR_BODY"
 ```
+
+`--assignee "@me"` self-assigns the PR to its author, mirroring the issue self-assign convention (`gh issue edit <N> --add-assignee @me` in `/sillok-start`). The author can always be assigned to their own PR, so this never blocks creation. Applies to all modes (single-issue, umbrella, story-finalize) since this is the single create call.
 
 Capture the PR URL from output.
 

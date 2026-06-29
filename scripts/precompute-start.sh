@@ -18,6 +18,8 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/config.sh
 source "$SCRIPT_DIR/lib/config.sh"
+# shellcheck source=lib/epics.sh
+source "$SCRIPT_DIR/lib/epics.sh"
 
 REPO=$(sillok_config_required repo)
 BRANCH_PREFIX=$(sillok_config_required branchPrefix)
@@ -149,59 +151,10 @@ if [[ -n "$ADOPT_N" ]]; then
 fi
 
 # Open epics (for parent suggestion) — skipped in adopt mode: an adopted
-# issue keeps its own parent relationship, so the parent prompt never runs
-# and the 1-2 gh lookups here would be wasted.
+# issue keeps its own parent relationship, so the parent prompt never runs.
 if [[ -z "$ADOPT_N" ]]; then
   echo
-  echo "### Open epics"
-
-  # Local-repo stories/epics (for parent suggestion).
-  # orgMode=true: query by Issue Type. orgMode=false: query by label fallback.
-  ORG_MODE=$(sillok_config orgMode)
-  if [[ "$ORG_MODE" == "true" ]]; then
-    # IssueFilters has no issueType argument (#41) — the Search API's type:
-    # qualifier is the supported server-side filter for Issue Types.
-    local_stories=$(gh api graphql \
-      -f query="{ search(query: \"repo:$REPO is:issue is:open type:Story\", type: ISSUE, first: 20) {
-        nodes { ... on Issue { number title } }
-      } }" --jq '.data.search.nodes[]? | "  - (in this repo) #\(.number) [Story] \(.title)"' 2>/dev/null) || {
-      echo "[precompute-start] open-epics query failed (type:Story, repo $REPO) — continuing with empty list" >&2
-      local_stories=""
-    }
-  else
-    # User repo: Issue Types unavailable. Fall back to label-based query.
-    local_stories=$(gh issue list --repo "$REPO" --label story --state open --limit 20 --json number,title \
-      --jq '.[]? | "  - (in this repo) #\(.number) [story] \(.title)"' 2>/dev/null || echo "")
-  fi
-
-  # Cross-repo PRD epics from prdRepo, if configured.
-  PRD_REPO=$(sillok_config prdRepo)
-  prd_epics=""
-  if [[ -n "$PRD_REPO" ]]; then
-    if [[ "$ORG_MODE" == "true" ]]; then
-      prd_epics=$(gh api graphql \
-        -f query="{ search(query: \"repo:$PRD_REPO is:issue is:open type:Epic\", type: ISSUE, first: 20) {
-          nodes { ... on Issue { number title } }
-        } }" --jq ".data.search.nodes[]? | \"  - (in $PRD_REPO) #\(.number) [Epic] \(.title)\"" 2>/dev/null) || {
-        echo "[precompute-start] open-epics query failed (type:Epic, repo $PRD_REPO) — continuing with empty list" >&2
-        prd_epics=""
-      }
-    else
-      prd_epics=$(gh issue list --repo "$PRD_REPO" --label epic --state open --limit 20 --json number,title \
-        --jq ".[]? | \"  - (in $PRD_REPO) #\(.number) [epic] \(.title)\"" 2>/dev/null || echo "")
-    fi
-  fi
-
-  if [[ -z "$local_stories" && -z "$prd_epics" ]]; then
-    echo "- (none — standalone unless --parent specified)"
-  else
-    if [[ -n "$prd_epics" ]]; then
-      printf '%s\n' "$prd_epics"
-    fi
-    if [[ -n "$local_stories" ]]; then
-      printf '%s\n' "$local_stories"
-    fi
-  fi
+  sillok_open_epics_section
 fi
 
 # Sprint milestone: YYYY-MM-Wn where n = ceil(sprint_start_day / 7), sprint starts Monday

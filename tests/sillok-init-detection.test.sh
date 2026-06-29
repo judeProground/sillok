@@ -27,14 +27,21 @@ if ! echo "$step2a2" | grep -Eq "closed|hidden"; then
 fi
 pass "closed-project note present in Step 2a-2"
 
-echo "test: Step 9b verification does NOT use organization(login:)"
-# Extract Step 9b block. The block starts at the Step 9b heading and ends at the
-# next "## Step" heading.
-step9b=$(awk '/^## Step 9b:/{flag=1} /^## Step /{if(flag && !/^## Step 9b:/) exit} flag' "$INIT_MD")
-if echo "$step9b" | grep -q "organization(login:"; then
-  fail "Step 9b still uses organization(login:) — should use gh project field-list"
+echo "test: project verification is owner-agnostic (gh project field-list, not organization(login:))"
+# The real project-verify call now lives in scripts/init-bootstrap.sh (phase2);
+# SKILL.md only describes it. Guard the IMPLEMENTATION, not just the prose — the
+# owner-scoped GraphQL query (organization(login:) breaks user-owned boards (#39),
+# so it must never reappear in the script that actually runs the check.
+BOOT="$REPO_ROOT/scripts/init-bootstrap.sh"
+grep -q "gh project field-list" "$BOOT" \
+  || fail "init-bootstrap.sh should verify the project via 'gh project field-list'"
+if grep -q "organization(login:" "$BOOT"; then
+  fail "init-bootstrap.sh uses organization(login:) — must use gh project field-list (owner-scoped query breaks user boards)"
 fi
-pass "Step 9b verification is owner-agnostic"
+if grep -q "organization(login:" "$INIT_MD"; then
+  fail "skills/init/SKILL.md mentions organization(login: — owner-scoped query is wrong"
+fi
+pass "project verification is owner-agnostic (script + skill)"
 
 echo
 echo "All sillok-init detection structural tests passed."

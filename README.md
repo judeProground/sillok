@@ -1,6 +1,6 @@
 # Sillok
 
-> **Sillok** (實錄, 실록) means "veritable records" — the authoritative chronicles of the Joseon Dynasty, registered with UNESCO Memory of the World. This Claude Code plugin applies the same idea to a codebase: every feature is brainstormed, recorded as a spec, chronicled through implementation, and sealed into `main` as the project's true record.
+> **Sillok** — spec-driven feature development for Claude Code. Every feature is brainstormed, written up as a spec, tracked through implementation on a GitHub issue, and merged into `main` as the project's record.
 
 **Spec-driven feature development, tracked by GitHub issues.**
 
@@ -90,11 +90,11 @@ cd .worktrees/<story-slug>
 
 ## Cross-repo PRD flow
 
-For product work that spans multiple code repos, sillok supports a **cross-repo PRD** pattern. The PRD itself lives as an `Epic`-typed issue in a dedicated product/spec repo, configured via `prdRepo` in `workflow.config.json`. Code repos then attach sub-features to that remote PRD by passing the qualified reference:
+For product work that spans multiple code repos, sillok supports a **cross-repo PRD** pattern. The PRD itself lives as an `Epic`-typed issue in a dedicated product/spec repo, configured via `epicRepo` in `workflow.config.json`. Code repos then attach sub-features to that remote PRD by passing the qualified reference:
 
 ```
-# in any code repo configured with prdRepo
-/sillok-start --parent owner/prd-repo#42   # cuts a sub-feature linked to the PRD
+# in any code repo configured with epicRepo
+/sillok-start --parent owner/projects#42   # cuts a sub-feature linked to the PRD
 ```
 
 Cross-repo `Closes #N` syntax is not honored by GitHub, so PRD closure stays manual — a PM closes the PRD issue once all linked sub-features across repos have shipped. Sillok records the parent reference in the sub-feature's body and on the project board so the linkage is auditable, but it never tries to auto-close the PRD.
@@ -109,9 +109,9 @@ Cross-repo `Closes #N` syntax is not honored by GitHub, so PRD closure stays man
 - `language` — body generation language: `"auto"` (default, matches session language), `"ko"`, or `"en"`. Section headers stay English for parsing; prose follows the chosen language.
 - `orgMode` — `true` for org repos (Issue Types + Projects v2 APIs), `false` (default) for personal repos (falls back to label-based type tracking).
 - `automation.{fullAuto}` — boolean, default `false`. When `true`, the `sillok:workflow` orchestrator chains start → design → execute → end without per-stage confirmation, stopping after PR creation (it never merges). An absent key means propose mode.
-- `prdRepo` — *optional.* `owner/name` of a separate repo where Epic-typed PRD issues live, for cross-repo PRD work. Leave empty if PRDs live in the same repo as code.
+- `epicRepo` — *optional.* `owner/name` of a separate repo where Epic-typed PRD issues live, for cross-repo PRD work. Leave empty if PRDs live in the same repo as code.
 - `project.{owner, number, statusField, statuses, priorityField, priorities}` — Projects v2 binding. `owner` is the org/user that owns the project, `number` is the project number from its URL, `statusField` is the single-select field name (default `Status`), and `statuses` maps sillok's six logical phases (`backlog` / `todo` / `design` / `progress` / `review` / `done`) to the option names on your board (defaults: `Backlog`, `Todo`, `In Design`, `In Progress`, `In QA`, `Done`). On org repos, priority is set via the board's Priority single-select: `priorityField` is its field name (default `Priority`), and `priorities` maps `p1`–`p4` to its option names (defaults: `Urgent`, `High`, `Medium`, `Low`); `/sillok-init` auto-creates the field when absent. User repos keep the `p1`–`p4` labels instead.
-- `types.{list, defaults}` — Issue Type configuration. `list` is the Issue Types sillok expects to exist on the org (default: `["Epic", "Story", "Feature", "Task", "Bug"]`). `defaults` maps sillok roles (`feature`, `composite`, `prd`) to the Issue Type used when creating each (defaults: `Feature`, `Story`, `Epic`).
+- `types.{list, defaults}` — Issue Type configuration. `list` is the Issue Types sillok expects to exist on the org (default: `["Epic", "Story", "Feature", "Task", "Bug"]`). `defaults` maps sillok roles (`feature`, `composite`, `epic`) to the Issue Type used when creating each (defaults: `Feature`, `Story`, `Epic`).
 - `worktree.{enabled,dir,copyFiles}` — worktree behavior and what gitignored files to copy into new worktrees
 - `install` — command run after a worktree is created (e.g. `pnpm install`)
 - `verify.{lint,typecheck,format}` — commands the verify-gate runs (empty = skip that step)

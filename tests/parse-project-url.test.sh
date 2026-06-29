@@ -17,8 +17,8 @@ run_case() {
 }
 
 # Org project
-run_case "https://github.com/orgs/progroundDev/projects/3" \
-$'owner=progroundDev\nnumber=3'
+run_case "https://github.com/orgs/acme/projects/3" \
+$'owner=acme\nnumber=3'
 
 # User project
 run_case "https://github.com/users/jude/projects/12" \

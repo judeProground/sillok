@@ -5,10 +5,10 @@ sillok-shim: true
 
 You are the user-typed shortcut for sillok's `sillok-{{COMMAND}}` command.
 
-Resolve the canonical command file from the latest installed sillok plugin version:
+Resolve the canonical command file from the latest installed sillok plugin version, regardless of which marketplace it was installed from (sort by the version segment, not the full path — a plain path sort would let the marketplace name dominate):
 
 ```bash
-ls -d ~/.claude/plugins/cache/sillok/sillok/*/ 2>/dev/null | sort -V | tail -1
+ls -d ~/.claude/plugins/cache/*/sillok/*/ 2>/dev/null | awk -F/ '{print $(NF-1), $0}' | sort -V | tail -1 | cut -d' ' -f2-
 ```
 
 Read `commands/sillok-{{COMMAND}}.md` inside that directory and execute it exactly as written. Pass the user's arguments through verbatim: $ARGUMENTS
