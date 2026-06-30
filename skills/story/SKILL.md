@@ -1,6 +1,6 @@
 ---
 name: story
-description: Internal sillok stage skill — enter via the /sillok-story command or a sillok:workflow handoff; for natural-language intent invoke sillok:workflow instead. Creates or promotes-to a story — always backed by a real integration branch and worktree; from a non-sillok branch creates a fresh story, from inside a sillok feature/bug/improvement/infra branch offers promotion of the current issue. Can attach the story under an epicRepo Epic via --parent or auto-suggest. A story is an in-repo composite (parent tracking issue + integration branch + worktree) typed Story on GitHub.
+description: Internal sillok stage skill — enter via the /sillok-story command or a sillok:workflow handoff; for natural-language intent invoke sillok:workflow instead. Creates or promotes-to a story (parent tracking issue + integration branch + worktree).
 user-invocable: false
 ---
 
@@ -24,13 +24,7 @@ Parse `--parent` into `parent_owner`, `parent_repo`, `parent_n`. When only a num
 
 ## Language
 
-Read the `### Language` section from the precompute output.
-
-- `auto` → write all generated content (issue body) in the same language as the current conversation session.
-- `ko` → write all generated content in Korean.
-- `en` → write all generated content in English.
-
-Section headers (`## Summary`, `## Integration branch`, `Parent:`, etc.) and GitHub API field names stay in English regardless of language setting — only prose content follows the language preference.
+Read the `### Language` section from the precompute output and apply the `output-language.md` rule (`.claude/sillok/rules/output-language.md`) to all generated content (issue body).
 
 ## Step 1: Detect context
 
@@ -61,32 +55,7 @@ Used when the user is on `main`, an unrelated branch, or a fresh worktree.
 
 1. Prompt: "Story title (verb-form imperative or short noun-phrase OK — stories are tracking issues, not single actions)."
 2. Prompt for 1-line summary and a few lines of Context. Architecture and Non-goals are optional — leave blank if user has none.
-3. Compose the story body using the story template from `.claude/sillok/rules/gh-issue-conventions.md`:
-
-   ```markdown
-   <1-line summary>
-
-   ## Integration branch
-
-   `story/issue-<TBD>-<slug>`
-
-   ## Key decisions
-   <empty — filled by /sillok-design story mode>
-
-   ## Architecture
-   <empty — filled by /sillok-design story mode>
-
-   ## Sub-issues
-   <empty — fills as /sillok-start --parent runs>
-
-   ## Context
-   <from prompt>
-
-   ## Non-goals
-   <optional>
-   ```
-
-   Architecture and Key decisions start empty — `/sillok-design` (story mode) fills them from brainstorming. The user can also write Architecture by hand if they skip design.
+3. Compose the story body. Read `${CLAUDE_PLUGIN_ROOT}/skills/story/body-templates.md` and follow its **Standalone story body** section (the skeleton plus the empty-section notes).
 
 4. Create the issue via the shared helper — type `Story` (org mode) / `story` label (user mode), default `p3` priority:
 
@@ -146,37 +115,31 @@ BODY
      "${N}-${slug_without_n}" "$story_branch" "$BASE_BRANCH"
    ```
 
-10. Link the branch into the issue's Development panel BEFORE pushing. `createLinkedBranch` is create-only — if the branch already exists on the remote, the mutation silently returns null and no link is made, so this must run before the first push. Under org mode the mutation itself creates the remote ref; under `orgMode=false` the helper no-ops and step 11's push creates the branch:
+10. Link the branch into the Development panel and push, in that fixed create-only order (`sillok_link_and_push` bakes it in — the link must precede the push or `createLinkedBranch` silently no-ops; see `sillok:gh-issue-management` → "Linked branches"). Under org mode the mutation creates the remote ref and the push sets the upstream; under `orgMode=false` the link no-ops and the push creates the branch (so sub-features can cut from it):
 
     ```bash
     worktree_path="<worktreeDir>/${N}-${slug_without_n}"   # use the path setup-feature-worktree printed
     BRANCH_SHA=$(cd "$worktree_path" && git rev-parse HEAD)
+
+    # HARD GATE: link-before-push (create-only) — enforced inside sillok_link_and_push.
     source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dev-link.sh"
-    ISSUE_NODE_ID=$(sillok_issue_node_id "$REPO" "$N")
-    sillok_link_branch "$ISSUE_NODE_ID" "$story_branch" "$BRANCH_SHA"
+    sillok_link_and_push "$REPO" "$N" "$story_branch" "$BRANCH_SHA" "$worktree_path"
     ```
 
-11. Push the branch to origin (so sub-features can cut from it; under org mode this is a content no-op that just sets the upstream), then add the issue to the project board with Status=Todo:
+11. Add the issue to the project board with Status=Todo, then set priority:
 
     ```bash
-    (cd "$worktree_path" && git push -u origin "$story_branch")
-
-    # Project add + status Todo
     source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/project.sh"
     ITEM_ID=$(sillok_project_item_add "$issue_url")
     sillok_project_status_set "$ITEM_ID" todo
 
-    # Org mode only: priority lives on the org-level Priority *issue field* (set
-    # on the issue, projected onto the board — no p-label was applied in step 4);
-    # default key from labels.defaults.priority. User mode keeps the p3 label
-    # from step 4 instead.
-    if [[ "$(sillok_config orgMode)" == "true" ]]; then
-      sillok_issue_priority_set "$issue_url" "$(sillok_config labels.defaults.priority)" \
-        || echo "[sillok] priority not set — re-run /sillok-init to create the org Priority issue field" >&2
-    fi
+    # Priority — org-guarded + NON-FATAL inside sillok_priority_apply (org mode
+    # sets the org Priority issue field; user mode is a no-op since the p3 label
+    # from step 4 is the record). Default key from labels.defaults.priority.
+    sillok_priority_apply "$issue_url" "$(sillok_config labels.defaults.priority)"
     ```
 
-    Priority failure is NON-FATAL: the story issue, branch, and worktree exist either way — surface the warning and continue (a board whose org never had a Priority issue field provisioned has nothing to set until `/sillok-init` is re-run, which creates it).
+    Priority failure is NON-FATAL: the story issue, branch, and worktree exist either way (the helper warns and continues). See `sillok:gh-issue-management` → "Priority" for the storage model.
 
 12. Print summary:
 
@@ -274,7 +237,7 @@ Used when the user is in the middle of a non-story work-unit branch that turned 
       git branch -m "$branch" "$story_branch"
       ```
 
-   e. **Re-link branch into the issue's Development panel (BEFORE pushing the story branch):** `createLinkedBranch` is create-only — if the story branch already existed on the remote, the mutation would silently return null and no link would be made. It also requires the passed oid to already exist in the remote repo, and mid-work promotion typically has unpushed local commits — so first push HEAD to the OLD branch name to make the oid reachable remotely without creating the story ref. The mutation then creates the story ref at that oid, and 6f's `git push -u` is a content no-op that just sets the upstream — *because of* this pre-push.
+   e. **Pre-push the oid to the OLD branch, then re-link + push the story branch:** `createLinkedBranch` is create-only AND needs the oid to already exist on the remote; mid-work promotion typically has unpushed local commits, so first push HEAD to the OLD branch name to make the oid reachable without creating the story ref. `sillok_link_and_push` then links (creating the story ref at that oid) and pushes — the push is a content no-op here that just sets the upstream (see `sillok:gh-issue-management` → "Linked branches" for the create-only rule).
 
       ```bash
       # Pre-push HEAD to the OLD branch name so the oid exists remotely without
@@ -284,17 +247,16 @@ Used when the user is in the middle of a non-story work-unit branch that turned 
       # in 6f anyway.
       git push origin "HEAD:refs/heads/$branch" 2>/dev/null || true
 
+      # HARD GATE: link-before-push (create-only) — enforced inside sillok_link_and_push.
       source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dev-link.sh"
-      ISSUE_NODE_ID=$(sillok_issue_node_id "$REPO" "$N")
       BRANCH_SHA=$(git rev-parse HEAD)
-      sillok_link_branch "$ISSUE_NODE_ID" "$story_branch" "$BRANCH_SHA"
+      sillok_link_and_push "$REPO" "$N" "$story_branch" "$BRANCH_SHA" .
       ```
 
       (The issue was already added to the project when it was first created as `$current_issue_type` via `/sillok-start` — no project-add needed here.)
 
-   f. **Push new (sets upstream) + delete old on remote:**
+   f. **Delete old on remote** (the story branch was pushed in 6e via `sillok_link_and_push`):
       ```bash
-      git push -u origin "$story_branch"
       # Delete the old remote branch (created/updated by 6e's pre-push);
       # ignore failure if it's absent (e.g. the pre-push itself failed).
       git push origin --delete "$branch" 2>/dev/null || true
@@ -306,36 +268,7 @@ Used when the user is in the middle of a non-story work-unit branch that turned 
 
    h. **Rewrite issue body:**
 
-      Build the new body from the story template, preserving the original `$summary`. When a parent was selected or preserved, include a `Parent: <ref>` line at the top. Use `gh issue edit -F -`:
-
-      ```bash
-      gh issue edit "$N" --repo "$REPO" -F - <<EOF
-      ${parent_n:+Parent: ${parent_owner}/${parent_repo}#${parent_n}
-      }$summary
-
-      ## Integration branch
-
-      \`$story_branch\`
-
-      ## Key decisions
-
-      (Run /sillok-design story mode to capture key decisions.)
-
-      ## Architecture
-
-      (Promoted from $current_issue_type — run /sillok-design story mode, or fill in as sub-features emerge.)
-
-      ## Sub-issues
-
-      ## Context
-
-      (Original context preserved from the $current_issue_type issue; expand as needed.)
-
-      ## Non-goals
-      EOF
-      ```
-
-      The user can edit the body afterwards to flesh out Architecture / Context / Non-goals.
+      Read `${CLAUDE_PLUGIN_ROOT}/skills/story/body-templates.md` and follow its **Promotion body rewrite** section (the `gh issue edit ... -F -` heredoc, preserving `$summary` and including the `Parent:` line when a parent was selected or preserved).
 
    i. **Handle the stash:**
 
@@ -360,12 +293,11 @@ Used when the user is in the middle of a non-story work-unit branch that turned 
 
 ## Epic link step
 
-When a parent is selected (in §2 or §3), resolve the parent and child node IDs, then call `addSubIssue`:
+When a parent is selected (in §2 or §3), link the story under it via the shared helper (resolves both node ids + calls `addSubIssue`; see `sillok:gh-issue-management` → "Sub-issue linking" for the canonical mutation):
 
 ```bash
-PARENT_ID=$(gh api graphql -f query="{ repository(owner: \"$parent_owner\", name: \"$parent_repo\") { issue(number: $parent_n) { id } } }" --jq '.data.repository.issue.id')
-CHILD_ID=$(gh api graphql -f query="{ repository(owner: \"${REPO%%/*}\", name: \"${REPO##*/}\") { issue(number: $N) { id } } }" --jq '.data.repository.issue.id')
-gh api graphql -f query="mutation { addSubIssue(input: { issueId: \"$PARENT_ID\", subIssueId: \"$CHILD_ID\" }) { issue { number } } }" >/dev/null
+source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/subissue.sh"
+sillok_subissue_link "$parent_owner" "$parent_repo" "$parent_n" "${REPO%%/*}" "${REPO##*/}" "$N"
 ```
 
 Skip any epic-label verification when `parent_owner/parent_repo` differs from the current repo — cross-repo parent labels are user-controlled and sillok cannot enforce them.
@@ -391,7 +323,7 @@ For any partial failure mid-promotion (e.g. branch rename succeeded but push fai
 
 ## Handoff
 
-On either success path (Step 2.12 or Step 3.7 summary printed): stage complete — cd into the printed worktree first (standalone creation; promotion stays on the renamed branch in place), then invoke `sillok:workflow` to decide the next step.
+Stage complete — on either success path (Step 2.12 standalone or Step 3.7 promotion), cd into the printed worktree first for standalone creation (promotion stays on the renamed branch in place), then invoke `sillok:workflow` to decide the next step.
 
 ## Integration
 

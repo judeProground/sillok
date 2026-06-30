@@ -1,6 +1,6 @@
 ---
 name: add
-description: Internal sillok stage skill — enter via the /sillok-add command; for natural-language intent invoke sillok:workflow instead. Captures a backlog issue (Issue Type + self-assign + project status Backlog) with NO branch, worktree, or milestone; pick it up later with /sillok-start <N>.
+description: Internal sillok stage skill — enter via the /sillok-add command; for natural-language intent invoke sillok:workflow instead. Captures a backlog issue with no branch or worktree.
 user-invocable: false
 ---
 
@@ -26,7 +26,7 @@ Read the markdown block (open epics for the parent suggestion, language preferen
 
 ## Language
 
-Same contract as `sillok:start`: `auto` → conversation language, `ko` → Korean, `en` → English. Section headers and GitHub field names stay English.
+Read the `### Language` section from the precompute output and apply the `output-language.md` rule (`.claude/sillok/rules/output-language.md`) to all generated content (issue body).
 
 ## Step 3: Propose issue settings
 
@@ -65,7 +65,7 @@ Capture `<N>` from the URL's last segment.
 
 ## Step 5: Link as sub-issue if parent
 
-Same GraphQL `addSubIssue` mutation as `sillok:start` Step 8 (skip label verification for cross-repo parents).
+Same as `sillok:start` Step 8 — `source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/subissue.sh"` and call `sillok_subissue_link <parent-owner> <parent-repo> <parent-N> ${REPO%%/*} ${REPO##*/} <N>` (skip label verification for cross-repo parents).
 
 ## Step 6: Board — add + status Backlog + priority (fail-soft)
 
@@ -76,19 +76,15 @@ if [[ -n "$ITEM_ID" ]]; then
   sillok_project_status_set "$ITEM_ID" backlog \
     || echo "[sillok] could not set Backlog status — the issue is created and on the board; add a 'Backlog' option to the board's Status field to enable backlog parking"
 
-  # Org mode only: priority lives on the org-level Priority *issue field* (set
-  # on the issue itself, then projected onto the board — no p-label was applied
-  # in Step 4). <priority-key> = the confirmed priority from Step 3 (default:
-  # p3). User mode skips this — the p-label from Step 4 is the priority record
-  # there.
-  if [[ "$(sillok_config orgMode)" == "true" ]]; then
-    sillok_issue_priority_set "$issue_url" "<priority-key>" \
-      || echo "[sillok] priority not set — re-run /sillok-init to create the org Priority issue field" >&2
-  fi
+  # Priority — org-guarded + NON-FATAL inside sillok_priority_apply (org mode
+  # sets the org Priority issue field; user mode is a no-op since the p-label
+  # from Step 4 is the record). <priority-key> = the confirmed priority from
+  # Step 3 (default: p3).
+  sillok_priority_apply "$issue_url" "<priority-key>"
 fi
 ```
 
-Status and priority failures are NON-FATAL: the issue exists either way — surface the warning and continue (a board whose org never had a Priority issue field provisioned has nothing to set until `/sillok-init` is re-run, which creates it). Never roll back issue creation over a board error. Recording priority here matters because adopt mode (`/sillok-start <N>`) KEEPs whatever priority the issue already has — backlog capture is the only point where it gets set.
+Status and priority failures are NON-FATAL: the issue exists either way — surface the warning and continue (the helper warns and continues; see `sillok:gh-issue-management` → "Priority"). Never roll back issue creation over a board error. Recording priority here matters because adopt mode (`/sillok-start <N>`) KEEPs whatever priority the issue already has — backlog capture is the only point where it gets set.
 
 ## Step 7: Output
 

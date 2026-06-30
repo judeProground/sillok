@@ -1,6 +1,6 @@
 ---
 name: design
-description: Internal sillok stage skill — enter via the /sillok-design command or a sillok:workflow handoff; for natural-language intent invoke sillok:workflow instead. Brainstorms and writes the spec for the current issue, saves it to <SPEC_DIR>/, pastes the full spec content into the issue body, and sets project status to In Design after the spec content is reviewed and confirmed.
+description: Internal sillok stage skill — enter via the /sillok-design command or a sillok:workflow handoff; for natural-language intent invoke sillok:workflow instead. Brainstorms and writes the spec for the current issue.
 user-invocable: false
 ---
 
@@ -47,30 +47,7 @@ Read the markdown block. Show it back to the user as the current state summary.
 
 ## Language
 
-Read the `### Language` section from the precompute output (step 1).
-
-- `auto` → write all generated content (spec, issue body) in the same language as the current conversation session.
-- `ko` → write all generated content in Korean.
-- `en` → write all generated content in English.
-
-Section headers (`## Summary`, `## Design`, `Parent:` etc.) and GitHub API field names stay in English regardless of language setting — only prose content follows the language preference.
-
-### Korean prose style
-
-When the resolved language is Korean, generated prose (spec, key decisions, summaries) follows this style contract:
-
-- Write complete sentences with explicit subjects and conjugated endings (~한다/~했다) — NOT 개조식 noun-ending fragments ("기각", "필요해짐", "벗어남"). Those read like compressed logs, not explanations.
-- Never calque English idioms word-for-word — describe the behavior instead ("graceful degradation" → "실패해도 빈 목록으로 조용히 동작한다", not "우아한 성능 저하").
-- Wrap code/API tokens in backticks so Korean particles don't collide with them (`first: 20` 페이지에서 — not "first: 20 페이지에서").
-- Key-decision bullets read as full sentences in 결정 → 이유 → 기각한 대안 order.
-
-BAD (real sample):
-
-> Search API(type: qualifier)로 교체, 클라이언트 측 필터링 기각 — 클라이언트 필터링은 first: 20 페이지에 Story/Epic이 없으면 누락되어 페이지네이션이 필요해짐. 단순 버그픽스 범위를 벗어남.
-
-GOOD:
-
-> Story/Epic 조회를 Search API의 `type:` qualifier 기반으로 교체했다. 클라이언트 측 필터링은 첫 `first: 20` 페이지에 Story/Epic이 없으면 결과가 누락되어 페이지네이션이 필요해지는데, 그건 단순 버그픽스의 범위를 벗어나므로 기각했다.
+Read the `### Language` section from the precompute output (step 1) and apply the `output-language.md` rule (`.claude/sillok/rules/output-language.md`) to all generated content (spec, issue body, key decisions). For Korean output the Korean prose style contract in that rule applies.
 
 ## Step 2: Pre-condition
 

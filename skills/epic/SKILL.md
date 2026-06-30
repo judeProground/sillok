@@ -1,6 +1,6 @@
 ---
 name: epic
-description: Internal sillok stage skill — enter via the /sillok-epic command only (epic sits outside the workflow chain and is never routed by sillok:workflow). Reads a team PRD (a `…/prd.md` path / picker / Notion URL), validates it against the team PRD convention, and creates a light Epic issue in epicRepo for cross-repo parenting.
+description: Internal sillok stage skill — enter via the /sillok-epic command only (epic sits outside the workflow chain and is never routed by sillok:workflow). Validates a team PRD and creates a light Epic issue in epicRepo for cross-repo parenting.
 user-invocable: false
 ---
 
@@ -36,7 +36,7 @@ Otherwise show the printed block to the user as the current state summary, and r
 
 ## Language
 
-Same contract as `sillok:start`: `auto` → conversation language, `ko` → Korean, `en` → English. Section headers and GitHub field names stay English regardless.
+Read the `### Language` section (from step 1's precompute block) and apply the `output-language.md` rule (`.claude/sillok/rules/output-language.md`) to all generated content (Epic body).
 
 ## Step 3: Resolve the PRD content + its repo path
 

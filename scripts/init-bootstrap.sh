@@ -330,6 +330,20 @@ phase1() {
     if ! { echo >> "$CLAUDE_MD" && cat "$SNIPPET" >> "$CLAUDE_MD"; }; then
       CLAUDE_MD_STATUS=fail
     fi
+  elif [[ "$CLAUDE_MD_STATUS" == "ok" ]]; then
+    # Marker block already present (re-init / existing consumer): backfill any
+    # snippet @import lines that are missing, so new rules reach old projects
+    # without duplicating the block. Each missing line is appended at EOF
+    # (@import lines are position-independent). Idempotent via grep -Fxq.
+    while IFS= read -r imp; do
+      [[ -n "$imp" ]] || continue
+      if ! grep -Fxq -- "$imp" "$CLAUDE_MD"; then
+        if ! printf '%s\n' "$imp" >> "$CLAUDE_MD"; then
+          CLAUDE_MD_STATUS=fail
+          break
+        fi
+      fi
+    done < <(grep -E '^- @\.claude/sillok/rules/.*\.md$' "$SNIPPET")
   fi
 
   # --- Step 8b tree (deterministic part only) -----------------------------

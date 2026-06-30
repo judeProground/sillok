@@ -1,6 +1,6 @@
 ---
 name: end
-description: Internal sillok stage skill — enter via the /sillok-end command or a sillok:workflow handoff; for natural-language intent invoke sillok:workflow instead. Pushes the branch, creates the PR per pr-convention, sets project status to In QA on the active sub-issue, updates the parent legacy checkbox if any; never auto-merges (done note embedded in the PR body Summary section).
+description: Internal sillok stage skill — enter via the /sillok-end command or a sillok:workflow handoff; for natural-language intent invoke sillok:workflow instead. Pushes the branch and opens the PR for the current issue.
 user-invocable: false
 ---
 
@@ -60,13 +60,7 @@ For story-finalize mode, `PR_BASE=$(sillok_config baseBranch)` directly — no p
 
 ## Language
 
-Read the `### Language` section from the precompute output (step 1).
-
-- `auto` → write all generated content (PR body summary) in the same language as the current conversation session.
-- `ko` → write all generated content in Korean.
-- `en` → write all generated content in English.
-
-Section headers (`## Summary`, `## Design`, `Closes #N` etc.) and GitHub API field names stay in English regardless of language setting — only prose content follows the language preference.
+Read the `### Language` section from the precompute output (step 1) and apply the `output-language.md` rule (`.claude/sillok/rules/output-language.md`) to all generated content (PR body summary).
 
 ## Step 2: Pre-conditions
 

@@ -1,6 +1,6 @@
 ---
 name: init
-description: Internal sillok stage skill — enter via the /sillok-init command only (init sits outside the workflow chain and is never routed by sillok:workflow). Bootstraps a project for sillok — detects repo, base branch, package manager, gitignored config files, and branch prefix automatically; asks at most two questions per run (conditional: project URL when no board is detected; auto-detected area labels when candidates found), and nothing under auto-mode. Org-mode runs provision the org Priority issue field without asking (API-only; not GUI-creatable). Idempotent.
+description: Internal sillok stage skill — enter via the /sillok-init command only (init sits outside the workflow chain and is never routed by sillok:workflow). Bootstraps a project for sillok; idempotent.
 user-invocable: false
 ---
 
@@ -54,6 +54,8 @@ The project tree for Step 8b is fenced between `### project-tree` and `### end-p
 
 **Hard ordering requirement:** Step 8b (below) must persist `labels.areas` to `CFG` **before** you invoke phase2 — phase2's `bootstrap-labels.sh` re-reads `labels.areas` from disk, so if the jq write hasn't happened the area labels silently won't be created.
 
+**Per-step script-contract reference is in `phase-reference.md`** (read on demand): what each phase1/phase2 step does (`Handled by phaseN → emits X`), the Step 11 summary output template + headline-icon table, and the Idempotency guarantees. This SKILL.md keeps only the action blocks — phase runs, the field reader, the Step 2a-2 URL prompt, the whole Step 8b classification, and the two HARD GATES.
+
 ## Run phase1 (Steps 1–8, deterministic)
 
 ```bash
@@ -65,19 +67,7 @@ INIT1=$(bash "${CLAUDE_PLUGIN_ROOT}/scripts/init-bootstrap.sh" phase1) || {
 
 **If phase1 exits non-zero, stop here** — do not run Step 8b or phase2. Step 1 hard-fails this way on a missing `git`/`gh`/`jq` or a non-repo CWD; surface phase1's stderr to the user (under auto-mode too, where nothing else is watching the stderr soft-contract) instead of proceeding with empty status vars.
 
-Then parse `$INIT1` with the field reader above. phase1 covers, all relocated verbatim into the script:
-
-## Step 1: Verify prerequisites
-
-Handled by `init-bootstrap.sh phase1` — it hard-fails (non-zero exit) on missing `git`/`gh`/`jq` or when not inside a git repository. It also initializes the sub-step status variables (`CONFIG_STATUS`, `RULES_STATUS`, … default to `fail`) that the status block reports.
-
-## Step 2: Detect repo and base branch
-
-Handled by phase1 (`gh repo view`) → emits `REPO` and `BASE_BRANCH`. If `REPO` is empty, the user must fill `repo` in the generated config manually (surfaced in the Step 11 summary).
-
-## Step 2a: Detect org mode
-
-Handled by phase1 (`gh api /repos/$REPO` owner type) → emits `ORG_MODE` and `OWNER_TYPE`. User-owned repos print a label-fallback notice to stderr.
+Then parse `$INIT1` with the field reader above. phase1 covers Steps 1–8 (all relocated verbatim into the script) — see `phase-reference.md` for the per-step `Handled by phase1 → emits X` contract, including the `migrate-config.sh`/`refresh-rules.sh`/`CONFIG_STATUS=migrated` details (Steps 6–7). The two judgment steps inside that range stay in this skill:
 
 ## Step 2a-2: Auto-detect project
 
@@ -112,37 +102,9 @@ if [[ "$PROJ_NUM" == "0" ]]; then
 fi
 ```
 
-## Step 2b: Verify org Issue Types
+## Steps 2b–8: handled by phase1 (reference)
 
-Handled by phase1 → emits `TYPES_STATUS` (`ok | missing | skip-user-repo`; user repos skip — Issue Types are org-only). A `missing` value triggers the ⚠️ warnings headline; `skip-user-repo` is informational (NOT a warning).
-
-## Step 3: Detect package manager and verify commands
-
-Handled by phase1 via `detect-stack.sh` (read with a `key=value` field reader, not `eval`, since values contain whitespace) → emits the single `STACK` label and writes `install`/`verify.*` into the config. Unknown stack ⇒ the user fills `verify.*` manually.
-
-## Step 4: Branch prefix default
-
-Handled by phase1 → emits `BRANCH_PREFIX` (default template `{type}/issue-`, which substitutes to `feature/issue-`, `bug/issue-`, etc. at branch-creation time). Users can override by editing `workflow.config.json`.
-
-## Step 5: Detect worktree copy files
-
-Handled by phase1 — finds gitignored per-worktree config files (`.env*`, `eas.json`, `google-services.json`, `GoogleService-Info.plist`) with the two-stage `grep`/`grep -v`/`head -200` filter (so `node_modules/**` doesn't drown out the root config), and writes them into `worktree.copyFiles`.
-
-## Step 6: Write `workflow.config.json`
-
-Handled by phase1. On an existing config it deep-merges missing template keys via `migrate-config.sh` (user values win, arrays verbatim) and reports `CONFIG_STATUS=migrated`; otherwise it writes a fresh config and reports `CONFIG_STATUS=ok`. `CONFIG_STATUS` values: `ok | migrated | fail`.
-
-## Step 7: Scaffold rules
-
-Handled by phase1 via `refresh-rules.sh` (overwrites project rule files from `templates/rules/` when content differs) → emits `RULES_STATUS`.
-
-## Step 7b: Write command shortcut shims (REQUIRED)
-
-Handled by phase1 via `write-shim-commands.sh` → emits `SHIM_STATUS`. This step is REQUIRED (the script writes the `.claude/commands/sillok-*.md` shims, respecting foreign files via the `sillok-shim: true` marker; it is idempotent). If `SHIM_STATUS=fail`, the Step 11 summary becomes ⚠️ with a follow-up command the user can copy.
-
-## Step 8: Append `CLAUDE.md` imports
-
-Handled by phase1 → emits `CLAUDE_MD_STATUS`. The append is guarded by the `## Sillok workflow rules` marker (`grep -q`), so a re-run never duplicates the import block.
+Steps 2b (org Issue Types → `TYPES_STATUS`), 3 (stack/`detect-stack.sh` → `STACK` + `install`/`verify.*`), 4 (branch prefix → `BRANCH_PREFIX`), 5 (worktree copy files → `worktree.copyFiles`), 6 (`workflow.config.json` via `migrate-config.sh` → `CONFIG_STATUS=ok|migrated|fail`), 7 (rules via `refresh-rules.sh` → `RULES_STATUS`), 7b (shims via `write-shim-commands.sh` → `SHIM_STATUS`, REQUIRED), and 8 (`CLAUDE.md` imports → `CLAUDE_MD_STATUS`) all run inside phase1 — you do not act on them, you only parse their status keys. See `phase-reference.md` for each step's full `Handled by phase1 → emits X` contract.
 
 ## Step 8b: Auto-detect area labels (hybrid — tree → classify → confirm)
 
@@ -247,119 +209,15 @@ $INIT2
 EOF
 ```
 
-phase2 re-reads `CFG`/config FRESH from disk (it depends on no phase1 shell vars) and covers:
-
-## Step 9: Bootstrap labels
-
-Handled by phase2 via `bootstrap-labels.sh "$REPO" --config "$CFG"` → emits `LABELS_STATUS` (`ok | skipped-no-repo | fail`). The `--config` flag picks up the now-final `labels.areas` and creates `area:<name>` labels (color `c9d4dd`); existing labels are skipped (`gh label create … || true`). If `REPO` is empty, the step is `skipped-no-repo` and the user runs `bootstrap-labels.sh` manually.
-
-## Step 9b: Verify project + Status field options
-
-Handled by phase2 via `gh project field-list` (owner-agnostic — works for user- and org-owned boards). It reads `project.owner`/`project.number` from `CFG`, compares the Status field's option names against the config's `project.statuses` values, and emits `PROJECT_STATUS` (`ok | incomplete | unconfigured`). Note: this verification does NOT issue a `gh api graphql` org query — it uses the CLI's `field-list`.
-
-## Step 9c: Priority field (org mode only — ensure the org issue field)
-
-Handled by phase2 (org mode only) → emits `PRIORITY_STATUS` (`ok | incomplete | skip-user-repo | unconfigured | fail`). It sources `lib/project.sh` and calls `sillok_org_priority_field_ensure` to discover/create the org Priority **issue field** (single-select from `project.priorities`, projected onto the board — API-only, not GUI-creatable), then verifies option coverage. User repos skip this entirely (`skip-user-repo`; p1–p4 labels are the priority record there). On steady-state re-init the step is `ok` without prompting or changing anything.
-
-## Step 10: Ensure spec/plan dirs + gitignore
-
-Handled by phase2 — `mkdir -p` the `docs.specs`/`docs.plans` dirs and append them to `.gitignore` if absent (they are local working artifacts; the issue body is the canonical record).
+phase2 re-reads `CFG`/config FRESH from disk (it depends on no phase1 shell vars) and covers Steps 9 (labels via `bootstrap-labels.sh` → `LABELS_STATUS`), 9b (project + Status options via `gh project field-list` → `PROJECT_STATUS`), 9c (org Priority issue field via `sillok_org_priority_field_ensure`, org mode only → `PRIORITY_STATUS`), and 10 (spec/plan dirs + `.gitignore`). You do not act on these — you only parse their status keys. See `phase-reference.md` for each step's full `Handled by phase2 → emits X` contract.
 
 ## Step 11: Print summary
 
-Compute the headline status icon from sub-step outcomes (phase1 + phase2 keys + the skill-owned `AREA_STATUS`):
-
-```bash
-# Inputs:
-#   CONFIG_STATUS   = ok | migrated | fail          (Step 6, phase1)
-#   RULES_STATUS    = ok | fail                    (Step 7, phase1)
-#   SHIM_STATUS     = ok | fail                    (Step 7b, phase1)
-#   CLAUDE_MD_STATUS= ok | fail                    (Step 8, phase1)
-#   AREA_STATUS     = areas-confirmed | none-detected | skip-preserved | fail   (Step 8b, in-skill)
-#   LABELS_STATUS   = ok | skipped-no-repo | fail  (Step 9, phase2)
-#   TYPES_STATUS    = ok | missing | skip-user-repo | fail   (Step 2b, phase1)
-#   PROJECT_STATUS  = ok | incomplete | unconfigured | fail   (Step 9b, phase2)
-#   PRIORITY_STATUS = ok | incomplete | skip-user-repo | unconfigured | fail   (Step 9c, phase2)
-
-# Critical steps — must all succeed for ✅
-if [[ "$CONFIG_STATUS" == "fail" || "$RULES_STATUS" == "fail" || "$CLAUDE_MD_STATUS" == "fail" || "$LABELS_STATUS" == "fail" ]]; then
-  HEADLINE="❌ sillok init FAILED"
-elif [[ "$TYPES_STATUS" == "missing" || "$PROJECT_STATUS" == "incomplete" || "$PRIORITY_STATUS" == "incomplete" ]]; then
-  HEADLINE="⚠️  sillok initialized (with warnings — see below)"
-elif [[ "$SHIM_STATUS" == "fail" || "$AREA_STATUS" == "fail" || "$PRIORITY_STATUS" == "fail" ]]; then
-  HEADLINE="⚠️  sillok initialized (with warnings — see below)"
-else
-  HEADLINE="✅ sillok initialized"
-fi
-```
-
-Print:
-
-```
-<HEADLINE>
-
-Repo:          <REPO or "(detect failed, edit manually)">
-Base branch:   <BASE_BRANCH>
-Branch prefix: <BRANCH_PREFIX>
-Stack:         <one of pnpm/yarn/npm/bun/bundler/go/cargo/poetry/pipenv or "unknown">
-Org mode:      <ORG_MODE> (<OWNER_TYPE>)                     [detected]
-
-Created:
-- .claude/sillok/workflow.config.json                  [<CONFIG_STATUS>]
-- .claude/sillok/rules/* (refreshed on re-run)         [<RULES_STATUS>]
-- .claude/commands/sillok-{start,add,design,execute,end,story}.md  [<SHIM_STATUS>]
-- CLAUDE.md (appended Sillok import block)             [<CLAUDE_MD_STATUS>]
-- <SPEC_DIR>/ and <PLAN_DIR>/ (ensured)
-- Labels on <REPO>                                     [<LABELS_STATUS>]
-- Org Issue Types (Epic/Story/Feature/Task/Bug)        [<TYPES_STATUS>]
-  - `skip-user-repo` → "📋 User-owned repo — Issue Types skipped (using label fallback)."
-- Project + Status options                             [<PROJECT_STATUS>]
-- Org Priority issue field (org mode)                  [<PRIORITY_STATUS>]
-  - `skip-user-repo` → "📋 User-owned repo — org Priority issue field skipped (p1–p4 labels are the priority record)."
-```
-
-**Area-label sub-summary** (always printed when relevant):
-
-| `AREA_STATUS` | Output |
-|---|---|
-| `areas-confirmed` | `📊 Area labels confirmed: area:<n1>, area:<n2>, …` followed by the "Not what you want?" guide below. |
-| `none-detected` | `📊 No vertical feature areas detected — no area labels created.` |
-| `skip-preserved` | `📊 labels.areas already curated ($EXISTING_AREAS entries) — detection skipped to preserve user edits.` |
-| `fail` | `📊 Area detection FAILED — re-run manually: bash <plugin>/scripts/project-tree.sh "$PROJECT_ROOT"` |
-
-The "Not what you want?" guide (for `areas-confirmed` only):
-
-```
-Not what you want?
-  - Edit `labels.areas` in .claude/sillok/workflow.config.json, then re-run:
-      bash ${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap-labels.sh <repo> --config <cfg-path>
-  - Or just ask Claude in natural language, e.g.
-      "remove area:foo and add area:bar from sillok config, then re-bootstrap labels"
-```
-
-**Warnings block** (only when `SHIM_STATUS == fail` or `LABELS_STATUS == skipped-no-repo`):
-
-```
-⚠️  Warnings / follow-ups:
-- <issue> — <copy-pasteable fix command>
-```
-
-**Footer:**
-
-```
-Next: /sillok-start to create your first feature.
-```
+Compose the summary from the phase1 + phase2 keys plus the skill-owned `AREA_STATUS`. **The headline-icon logic (`bash` block), the printed `Created:` template, the area-label sub-summary table, the "Not what you want?" guide, the warnings block, and the footer all live in `phase-reference.md` → "Step 11: Summary output"** — read it and reproduce the output verbatim. Nothing here is an action the agent computes beyond filling the status placeholders.
 
 ## Idempotency guarantees
 
-Re-running `/sillok-init` must (all preserved by the two-phase script + in-skill 8b):
-- Refresh rule files from the plugin's `templates/rules/` via `refresh-rules.sh` (overwrite when content differs; local edits are not preserved — recover from git if needed)
-- Refresh shim command files that carry `sillok-shim: true` (so a plugin upgrade can update the shim format); leave foreign `.claude/commands/sillok-*.md` files untouched
-- Skip CLAUDE.md import-block append if the `## Sillok workflow rules` marker is already present
-- Skip label creation for labels that already exist (handled by `bootstrap-labels.sh` with `|| true`)
-- Deep-merge `workflow.config.json` on re-run via `migrate-config.sh`: add missing template keys, preserve existing user values, keep arrays verbatim
-- Preserve existing `labels.areas` array: if non-empty in the existing config, Step 8b reports `skip-preserved` and does NOT overwrite (user's curation wins over auto-pick)
-- Priority field steady state asks nothing and changes nothing: when the field exists and every `project.priorities` value matches an option, Step 9c reports `ok` without prompting or writing (a once-confirmed `mapped` config matches on every later run)
+Re-running `/sillok-init` is idempotent (all preserved by the two-phase script + in-skill 8b): rules/shim refresh, CLAUDE.md marker-guard + per-rule backfill, label `|| true` skip, config deep-merge via `migrate-config.sh`, `labels.areas` `skip-preserved` preservation, and Priority-field steady state. The full per-guarantee list is in `phase-reference.md` → "Idempotency guarantees".
 
 ## Integration
 

@@ -90,6 +90,30 @@ marker_count=$(grep -c '## Sillok workflow rules' "$PROJECT/CLAUDE.md" 2>/dev/nu
 [[ "$marker_count" -eq 1 ]] || fail "CLAUDE.md marker duplicated on re-run (count=$marker_count)"
 pass "idempotent re-run"
 
+echo "test: every snippet @import line is present in CLAUDE.md after init"
+SNIPPET="$REPO_ROOT/templates/claude-md-snippet.md"
+while IFS= read -r imp; do
+  grep -Fxq -- "$imp" "$PROJECT/CLAUDE.md" || fail "missing import line in CLAUDE.md: $imp"
+done < <(grep -E '^- @\.claude/sillok/rules/.*\.md$' "$SNIPPET")
+pass "all snippet imports present"
+
+echo "test: re-init backfills a missing @import line (existing-consumer upgrade) without duplicating"
+# Simulate an existing consumer whose CLAUDE.md predates a newly-added rule:
+# delete one @import line (marker stays), then re-run phase1.
+grep -vF -- '- @.claude/sillok/rules/output-language.md' "$PROJECT/CLAUDE.md" > "$PROJECT/CLAUDE.md.tmp"
+mv "$PROJECT/CLAUDE.md.tmp" "$PROJECT/CLAUDE.md"
+grep -Fxq -- '- @.claude/sillok/rules/output-language.md' "$PROJECT/CLAUDE.md" && fail "precondition: import line should be absent before backfill"
+bash "$REPO_ROOT/scripts/init-bootstrap.sh" phase1 >/dev/null 2>&1
+backfill_count=$(grep -cF -- '- @.claude/sillok/rules/output-language.md' "$PROJECT/CLAUDE.md" 2>/dev/null || echo 0)
+[[ "$backfill_count" -eq 1 ]] || fail "backfill did not add exactly one import line (count=$backfill_count)"
+marker_count2=$(grep -c '## Sillok workflow rules' "$PROJECT/CLAUDE.md" 2>/dev/null || echo 0)
+[[ "$marker_count2" -eq 1 ]] || fail "backfill duplicated marker block (count=$marker_count2)"
+# A further re-run must not duplicate the backfilled line.
+bash "$REPO_ROOT/scripts/init-bootstrap.sh" phase1 >/dev/null 2>&1
+backfill_count2=$(grep -cF -- '- @.claude/sillok/rules/output-language.md' "$PROJECT/CLAUDE.md" 2>/dev/null || echo 0)
+[[ "$backfill_count2" -eq 1 ]] || fail "second re-run duplicated backfilled import line (count=$backfill_count2)"
+pass "idempotent import backfill"
+
 echo "test: phase2 emits LABELS_STATUS and the phase2 header"
 out3=$(bash "$REPO_ROOT/scripts/init-bootstrap.sh" phase2 2>/dev/null)
 echo "$out3" | grep -q '## sillok init phase2' || fail "missing phase2 header, got: $out3"

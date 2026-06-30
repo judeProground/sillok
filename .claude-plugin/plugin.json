@@ -1,7 +1,7 @@
 {
   "name": "sillok",
   "description": "Spec-driven feature chronicle, tracked by GitHub issues. Brainstorm → spec → plan → implement → PR, with the issue as the canonical record.",
-  "version": "3.3.2",
+  "version": "3.4.0",
   "author": {
     "name": "judeProground"
   },

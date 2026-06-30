@@ -99,3 +99,23 @@ sillok_link_branch() {
   fi
   return 0
 }
+
+# Resolve the issue node id, create the Development-panel link, THEN push — in
+# that fixed order. createLinkedBranch is create-only (see sillok_link_branch),
+# so the link MUST happen before the branch exists on the remote: baking the
+# order into one function makes it impossible to reverse at a call site.
+# The branch SHA and the push directory are caller-supplied so each site keeps
+# its own pre/post steps (e.g. /sillok-story promotion's pre-push + delete-old).
+# Usage: sillok_link_and_push <repo> <issue-N> <branch-name> <branch-sha> <push-dir>
+sillok_link_and_push() {
+  local repo="$1"
+  local issue_n="$2"
+  local branch_name="$3"
+  local branch_sha="$4"
+  local push_dir="$5"
+
+  local issue_node_id
+  issue_node_id=$(sillok_issue_node_id "$repo" "$issue_n")
+  sillok_link_branch "$issue_node_id" "$branch_name" "$branch_sha"
+  (cd "$push_dir" && git push -u origin "$branch_name")
+}

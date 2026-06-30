@@ -1,6 +1,6 @@
 ---
 name: start
-description: Internal sillok stage skill — enter via the /sillok-start command or a sillok:workflow handoff; for natural-language intent invoke sillok:workflow instead. Creates the GH issue (Issue Type + self-assign + project status Todo + linked branch) plus branch and worktree for a new work unit; optional --parent N (same-repo) or owner/repo#N (cross-repo PRD epic).
+description: Internal sillok stage skill — enter via the /sillok-start command or a sillok:workflow handoff; for natural-language intent invoke sillok:workflow instead. Bootstraps a new work unit: GH issue + branch + worktree.
 user-invocable: false
 ---
 
@@ -64,18 +64,12 @@ Then:
 3. **Branch type** comes precomputed: read the Adopt block's `Branch type:` line as ground truth (the script lowercases the issue type and defaults unknown to `feature` — don't re-derive it).
 4. Continue with **Step 9 (slug + branch)** using the issue's title — the non-ASCII translation rule applies as usual — then Step 9b (the Adopt block's `Parent:` line feeds the integration-branch lookup), Step 10, 10b, and 10c.
 5. **Step 10c status nuance:** after `ADOPT-OK`, set status `todo` as usual (this is the Backlog → Todo promotion). After a confirmed `ADOPT-WARN`, do NOT touch the status — skip the `sillok_project_status_set` call and keep the board as-is.
-   **Priority is never touched in adopt mode** (`ADOPT-OK` or `ADOPT-WARN` alike): skip the `sillok_issue_priority_set` call — an adopted issue keeps whatever priority it already has, for the same KEEP reason: the state predates this run and sillok must not clobber it.
+   **Priority is never touched in adopt mode** (`ADOPT-OK` or `ADOPT-WARN` alike): skip the `sillok_priority_apply` call — an adopted issue keeps whatever priority it already has, for the same KEEP reason: the state predates this run and sillok must not clobber it.
 6. In the Step 11 output, mark the issue line as `(adopted #N)`.
 
 ## Language
 
-Read the `### Language` section from the precompute output (step 2).
-
-- `auto` → write all generated content (issue body, commit summary) in the same language as the current conversation session.
-- `ko` → write all generated content in Korean.
-- `en` → write all generated content in English.
-
-Section headers (`## Summary`, `## Design`, `Parent:` etc.) and GitHub API field names stay in English regardless of language setting — only prose content follows the language preference.
+Read the `### Language` section from the precompute output (step 2) and apply the `output-language.md` rule (`.claude/sillok/rules/output-language.md`) to all generated content (issue body, commit summary).
 
 ### Full-auto mode
 
@@ -155,12 +149,11 @@ Capture `<N>` by parsing the URL's last segment.
 
 ## Step 8: Link as sub-issue if parent
 
-If a parent was selected:
+If a parent was selected, link the new issue under it via the shared helper (resolves both node ids + calls `addSubIssue`; see `sillok:gh-issue-management` → "Sub-issue linking" for the canonical mutation):
 
 ```bash
-PARENT_ID=$(gh api graphql -f query="{ repository(owner: \"$parent_owner\", name: \"$parent_repo\") { issue(number: $parent_n) { id } } }" --jq '.data.repository.issue.id')
-CHILD_ID=$(gh api graphql -f query="{ repository(owner: \"${REPO%%/*}\", name: \"${REPO##*/}\") { issue(number: $N) { id } } }" --jq '.data.repository.issue.id')
-gh api graphql -f query="mutation { addSubIssue(input: { issueId: \"$PARENT_ID\", subIssueId: \"$CHILD_ID\" }) { issue { number } } }" >/dev/null
+source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/subissue.sh"
+sillok_subissue_link "$parent_owner" "$parent_repo" "$parent_n" "${REPO%%/*}" "${REPO##*/}" "$N"
 ```
 
 **Skip the epic-label verification step** when `parent_owner/parent_repo` differs from current repo — cross-repo parent labels are user-controlled and sillok cannot enforce them.
@@ -236,21 +229,15 @@ Note: `git worktree` does NOT auto-symlink dependency directories (`node_modules
 
 ## Step 10b: Link branch to issue (Development panel), THEN push
 
-Order matters: `createLinkedBranch` is **create-only** — when the named branch already exists on the remote, the mutation silently returns `{linkedBranch: null}` (exit 0, no error) and the issue never gets the link. So the link MUST run before the branch exists on the remote, i.e. before the first push. Under `orgMode=false` the helper no-ops and the push creates the remote branch as before; under org mode the mutation itself creates the remote ref, so the subsequent push is a content no-op that just sets the upstream.
+`sillok_link_and_push` bakes in the create-only ordering: resolve issue node id → `createLinkedBranch` → `git push -u`. The link MUST precede the push — once the branch exists on the remote the mutation silently no-ops (see `sillok:gh-issue-management` → "Linked branches"). Under `orgMode=false` the link helper no-ops and the push creates the remote branch; under org mode the mutation creates the ref and the push just sets the upstream.
 
 ```bash
 worktree_path=".worktrees/<slug>"
-
-# Resolve SHA of new branch tip
 BRANCH_SHA=$(cd "$worktree_path" && git rev-parse HEAD)
 
-# Look up GraphQL node IDs and create the linked branch FIRST (create-only mutation)
+# HARD GATE: link-before-push (create-only) — enforced inside sillok_link_and_push.
 source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dev-link.sh"
-ISSUE_NODE_ID=$(sillok_issue_node_id "$REPO" "$N")
-sillok_link_branch "$ISSUE_NODE_ID" "<branch>" "$BRANCH_SHA"
-
-# THEN push — sets upstream; creates the remote branch when orgMode=false
-(cd "$worktree_path" && git push -u origin "<branch>")
+sillok_link_and_push "$REPO" "$N" "<branch>" "$BRANCH_SHA" "$worktree_path"
 ```
 
 ## Step 10c: Add to project + set status Todo + set priority (org mode)
@@ -262,18 +249,14 @@ source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/project.sh"
 ITEM_ID=$(sillok_project_item_add "$issue_url")
 sillok_project_status_set "$ITEM_ID" todo
 
-# Org mode only: priority lives on the org-level Priority *issue field* (set on
-# the issue itself, then projected onto the board — no p-label was applied in
-# Step 7). <priority-key> = the confirmed priority from Step 6 (default: the
-# labels.defaults.priority config key). User mode skips this — the p-label from
-# Step 7 is the priority record there.
-if [[ "$(sillok_config orgMode)" == "true" ]]; then
-  sillok_issue_priority_set "$issue_url" "<priority-key>" \
-    || echo "[sillok] priority not set — re-run /sillok-init to create the org Priority issue field" >&2
-fi
+# Priority — org-guarded + NON-FATAL inside sillok_priority_apply (org mode sets
+# the org Priority issue field; user mode is a no-op since the p-label from Step
+# 7 is the record). <priority-key> = the confirmed priority from Step 6 (default:
+# the labels.defaults.priority config key).
+sillok_priority_apply "$issue_url" "<priority-key>"
 ```
 
-Priority failure is NON-FATAL: the issue, branch, and worktree exist either way — surface the warning and continue (a board whose org never had a Priority issue field provisioned has nothing to set until `/sillok-init` is re-run, which creates it). **Adopt mode skips this call entirely** — see the adopt rules above.
+Priority failure is NON-FATAL: the issue, branch, and worktree exist either way (the helper warns and continues). See `sillok:gh-issue-management` → "Priority" for the storage model. **Adopt mode skips this call entirely** — see the adopt rules above.
 
 ## Step 11: Output
 

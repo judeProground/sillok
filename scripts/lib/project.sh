@@ -425,6 +425,24 @@ sillok_issue_priority_set() {
   }" --jq '.data.setIssueFieldValue.issue.number' >/dev/null
 }
 
+# Org-guarded, NON-FATAL priority set. In org mode priority lives on the org
+# Priority *issue field* (set on the issue, projected onto the board); in user
+# mode the p-label applied at issue-create time IS the priority record, so this
+# is a no-op. Wrapping the guard + fail-soft warning makes the org/user fork and
+# the never-roll-back-over-a-board-error semantics identical everywhere.
+# Returns 0 always (priority is an enhancement, never a blocker).
+# Usage: sillok_priority_apply <issue-url> <priority-key>
+sillok_priority_apply() {
+  local issue_url="$1"
+  local priority_key="$2"
+
+  if [[ "$(sillok_config orgMode)" == "true" ]]; then
+    sillok_issue_priority_set "$issue_url" "$priority_key" \
+      || echo "[sillok] priority not set — re-run /sillok-init to create the org Priority issue field" >&2
+  fi
+  return 0
+}
+
 # Ensure the org-level Priority Issue Field exists, then project it onto the
 # configured board. Org Priority issue fields cannot be created in the GitHub
 # GUI (preview, API-only), so init provisions one when absent.

@@ -6,6 +6,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [3.4.0] — 2026-06-29
+
+### Refactored
+- **Skill prompts reviewed against `writing-great-skills`; behavior-preserving (#43).** Pure structural pass — no command, flag, ordering, or output changed. The duplicated `## Language` contract (7 skills) is single-sourced into the new `templates/rules/output-language.md` rule (imported via `claude-md-snippet.md`, idempotently backfilled into existing consumers by `init-bootstrap.sh`; `design`'s Korean-prose style absorbed). Link-before-push, sub-issue linking, and org-priority are extracted into sourced helpers (`sillok_link_and_push`, `sillok_subissue_link`, `sillok_priority_apply`) that bake in the create-only ordering / NON-FATAL / org-user fork so call sites can't reorder them. The 8 stage-skill descriptions are trimmed to the deferral marker + a short purpose. Line cuts: `init` 370->228, `gh-issue-management` 325->202, `story` 400->332.
+
+### Added
+- **Progressive-disclosure subfiles (#43):** `gh-issue-management/flows.md` (8 flows + worked example), `init/phase-reference.md` (per-phase script contract), `story/body-templates.md`.
+- **SKILL.md command-surface guard tests (#43):** `tests/skill-command-surface.test.sh` + `tests/w3-helpers.test.sh` (zsh-compat) assert the executable bash surface script tests don't reach (the #51-class blind spot). They caught one intermediate regression — a bare-relative `source` in `add/SKILL.md` that broke `/sillok-add --parent` — fixed before merge.
+
 ## [3.3.2] — 2026-06-24
 
 ### Fixed
@@ -41,7 +50,7 @@ Behavior-preserving quality pass over the skills + scripts (story #31). No
 user-facing workflow change.
 
 ### Changed
-- **Skill bodies: dropped changelog framing, tiered emphasis, trimmed descriptions (#33).** `SKILL.md` files are always-loaded instructions, so they now state the current rule + durable reason instead of narrating edit history ("now / prior / an earlier version / removed") — across `verify-gate`, `execute`, `init`. Demoted the two procedural CAPS in `execute` Step 4; irreversible-mutation gates (no-auto-merge, link-before-push, failure-demotion, propose gate) stay loud. Trimmed the redundant eight-flow enumeration in `gh-issue-management`'s description. Documented both conventions ("emphasis tiering", "no changelog in bodies") in `plugins/sillok/CLAUDE.md`.
+- **Skill bodies: dropped changelog framing, tiered emphasis, trimmed descriptions (#33).** `SKILL.md` files are always-loaded instructions, so they now state the current rule + durable reason instead of narrating edit history ("now / prior / an earlier version / removed") — across `verify-gate`, `execute`, `init`. Demoted the two procedural CAPS in `execute` Step 4; irreversible-mutation gates (no-auto-merge, link-before-push, failure-demotion, propose gate) stay loud. Trimmed the redundant eight-flow enumeration in `gh-issue-management`'s description. Documented both conventions ("emphasis tiering", "no changelog in bodies") in `CLAUDE.md`.
 
 ### Refactored
 - **Extracted `init`'s deterministic bash into `scripts/init-bootstrap.sh` (#35).** `skills/init/SKILL.md` dropped 674 → 365 lines; the detect/config/rules/shims/labels/project/priority/dirs work now lives in a standalone **two-phase** script that prints a `KEY=value` status block the skill reads with a field-reader (the two interactive/LLM steps — empty-case URL prompt, area-label classification — stay in the skill). Matches the existing skill → precompute-script pattern.

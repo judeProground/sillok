@@ -64,7 +64,10 @@ fi
 for sh in "${SHELLS[@]}"; do
   check_lib "$sh" config.sh      sillok_config
   check_lib "$sh" project.sh     sillok_project_item_for_issue
+  check_lib "$sh" project.sh     sillok_priority_apply
   check_lib "$sh" dev-link.sh    sillok_link_branch
+  check_lib "$sh" dev-link.sh    sillok_link_and_push
+  check_lib "$sh" subissue.sh    sillok_subissue_link
   check_lib "$sh" issue-types.sh sillok_issue_type_set
 done
 
