@@ -1,164 +1,175 @@
-# Sillok
+# Sillok 실록
 
-> **Sillok** — spec-driven feature development for Claude Code. Every feature is brainstormed, written up as a spec, tracked through implementation on a GitHub issue, and merged into `main` as the project's record.
+[![version](https://img.shields.io/badge/version-3.4.0-blue)](CHANGELOG.md)
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2)](https://docs.claude.com/en/docs/claude-code)
 
-**Spec-driven feature development, tracked by GitHub issues.**
+**A spec-driven feature workflow for Claude Code — every feature tracked from brainstorm to merge on a single GitHub issue.**
 
-A GitHub issue is the canonical record of one feature. Its body holds the spec inline (so anyone can read it on GitHub without checking out the repo). A linked plan, a branch on a worktree, a series of commits, and finally a PR — every artifact threads back to that one issue. The issue's card on a Projects v2 board flips through `Todo → In Design → In Progress → In QA → Done` as the work moves.
+Sillok turns each feature into one auditable record. The GitHub issue holds the spec inline; a linked plan, a worktree branch, commits, and a PR all thread back to it; and the issue's Projects v2 card moves through `Todo → In Design → In Progress → In QA → Done` as the work advances. How a feature was designed and decided no longer lives only in a local session that disappears when you close the terminal.
 
-The plugin is built around six workflow commands — `/sillok-add` for backlog capture and the `start`/`design`/`execute`/`end`/`story` feature pipeline — plus one bootstrap command (`/sillok-init`). They preserve a proven pipeline structure (issue creation, design brainstorming with spec inlining, plan generation with subagent-driven execution, end-of-plan whole-branch verification, PR creation) and connect them through a single per-project configuration file.
+```mermaid
+flowchart LR
+    add["/sillok-add"] -.->|Backlog| start["/sillok-start"]
+    start -->|Todo| design["/sillok-design"]
+    design -->|In Design| execute["/sillok-execute"]
+    execute -->|In Progress| endpr["/sillok-end"]
+    endpr -->|In QA| done(["merge → Done"])
+```
 
-**Architecture:** each command is a thin pointer wrapper over a per-stage skill (`skills/<stage>/SKILL.md` holds the actual procedure), and a `sillok:workflow` orchestrator skill owns the stage chain — it proposes the next stage by default, or runs the whole start → design → execute → end chain unprompted (stopping after PR creation, never merging) when `automation.fullAuto: true` is set in `workflow.config.json`. A SessionStart hook injects a small sillok context block in configured projects.
+## Why Sillok?
 
-## Install
+Building with an AI coding agent locally is fast — but the trail evaporates.
+
+- **The process disappears; only code remains.** A local Claude Code session leaves a diff, but the reasoning behind it — why this approach, what was rejected, which trade-offs were made — is gone once the session ends. Under auto-accept, even the decisions you delegated leave no record.
+- **Context is scattered.** Planning in Notion, issues in a tracker like Jira, code in git — three places, no single thread. Trackers often end up holding a ticket title and little else.
+- **Everyone improvises a different workflow.** No shared structure means no shared record — and no clean substrate to later hand off to an agent.
+
+Sillok makes the **GitHub issue the single source of truth** for a feature and wires the whole lifecycle around it:
+
+- The issue connects commits, PR, milestone, board status, and release tag — one place for everything.
+- Sub-issues and labels add finer structure: `Epic → Story → Feature → Task`.
+- Skills and a SessionStart hook keep the issue in sync automatically and give every developer the same pipeline.
+- Because the workflow is explicit and recorded, it becomes a natural substrate for agentic delegation — an agent can run the same pipeline a human does.
+
+## Highlights
+
+- **One issue = one feature's whole story** — spec inline, plan linked, branch/commits/PR threaded back, board status live.
+- **Four-level hierarchy** — `Epic → Story → Feature → Task` via native GitHub sub-issue links (cross-repo capable).
+- **GitHub-native, not label soup** — Issue Types + Projects v2 Status/Priority fields instead of `type:*` / `stage:*` labels.
+- **Automatic linking & closing** — branches appear in the issue's Development panel; `Closes #N` auto-closes on merge.
+- **Spec-driven by construction** — brainstorm → spec (pasted into the issue) → plan → subagent-driven build → whole-branch verify → PR.
+- **Full-auto or propose mode** — chain the stages unprompted (it never merges), or confirm at each step.
+- **No runtime dependencies** — pure bash + markdown + JSON; drops into any repo with one `/sillok-init`.
+
+## Quick start
+
+### Prerequisites
+
+- Claude Code installed.
+- `gh` CLI authenticated against your GitHub account.
+- `jq` on your `PATH`.
+- **A GitHub repo** — organization (recommended) or personal. Org repos get full Issue Types + Projects v2 (`orgMode: true`); personal repos fall back to label-based tracking (`orgMode: false`).
+- **Org repos:** add the `Epic` and `Story` Issue Types (Organization → Settings → Issue Types); `Feature`, `Task`, and `Bug` usually exist already.
+- **A Projects v2 board** (recommended) with a `Status` field carrying `Backlog`, `Todo`, `In Design`, `In Progress`, `In QA`, `Done`, and the built-in "Auto-add to project" + "Item closed → Done" workflows enabled.
+
+### Install
 
 ```bash
 /plugin marketplace add judeProground/sillok
 /plugin install sillok@sillok
 ```
 
-### Prerequisites
-
-- Claude Code installed.
-- `gh` CLI authenticated against your GitHub account.
-- `jq` available on `PATH`.
-- **Organization repo (recommended) or personal repo.** Org repos get full Issue Types + Projects v2 integration (`orgMode: true`). Personal repos work too — sillok falls back to label-based type tracking when `orgMode: false` (the default).
-- **Org repos only: add missing Issue Types.** Sillok v2 uses `Epic`, `Story`, `Feature`, `Task`, and `Bug` as Issue Types. `Feature`, `Task`, and `Bug` usually exist by default; an org owner must add `Epic` and `Story` from the org-level **Issue Types** settings (Organization → Settings → Issue Types).
-- **A Projects v2 board** (optional for personal repos, recommended for orgs) with:
-  - a `Status` single-select field configured with these six options: **Backlog**, **Todo**, **In Design**, **In Progress**, **In QA**, **Done**. (`Backlog` is used by `/sillok-add`; a board without it still works — sillok warns and skips the backlog parking.)
-  - the built-in workflows **"Auto-add to project"** and **"Item closed → Done"** enabled. Point auto-add's default status at **Backlog** (recommended) so manually-filed issues land in the backlog; sillok commands set their own status explicitly (`/sillok-add` → Backlog, `/sillok-start` → Todo).
-
-Then in any project:
+### Initialize
 
 ```bash
 cd /path/to/your-project
 /sillok-init
 ```
 
-`/sillok-init` asks at most two questions per run, drawn from three conditional ones (a Projects v2 URL when no board is auto-detected; a one-time confirmation of proposed `area:*` labels when candidates are found; on org repos, the board's Priority-field option mapping — only when an existing field's options genuinely mismatch the config): it detects your repo, base branch, package manager (validating lint/format/typecheck against `package.json#scripts`), branch prefix, Projects v2 board (auto-detects from repo owner's project list), and gitignored config files automatically, writes `.claude/sillok/workflow.config.json`, scaffolds six rule files under `.claude/sillok/rules/`, installs shortcut shims under `.claude/commands/`, appends import lines to your `CLAUDE.md`, creates the default labels on the GitHub repo (6 natures always; the 4 `p1`–`p4` priority labels on user-mode repos only — org repos track priority on the board's Priority field; Issue Types and project Status replace the old `type:*`/`stage:*` labels), and proposes `area:*` labels by classifying the project's pruned directory tree (`scripts/project-tree.sh`) into vertical business areas vs horizontal technical layers — labels are created only after you confirm, and the list stays editable in the config afterwards. Edit the config file if anything detected wrong.
+`/sillok-init` auto-detects your repo, base branch, package manager, Projects v2 board, and gitignored config files, then writes `.claude/sillok/workflow.config.json`, scaffolds the rule files, installs command shims, appends an import block to your `CLAUDE.md`, and proposes `area:*` labels from your directory tree. It asks at most two questions per run and is fully idempotent — re-run it any time to pick up plugin upgrades.
 
-## Command invocation
+## Commands
 
-After `/sillok-init`, every sillok command can be invoked two ways:
+| Command | What it does | Board status |
+|---------|--------------|--------------|
+| `/sillok-add` | Capture a backlog issue (no branch/worktree) | `Backlog` |
+| `/sillok-start` | Create issue + Issue Type + assignee + linked branch + worktree | `Todo` |
+| `/sillok-start <N>` | Adopt an existing issue (full setup) | `Backlog → Todo` |
+| `/sillok-design` | Brainstorm + write the spec, paste it into the issue | `In Design` |
+| `/sillok-execute` | Write the plan, run subagent-driven build + verify-gate | `In Progress` |
+| `/sillok-end` | Open the PR (`Closes #N`), self-assign | `In QA` |
+| `/sillok-story` | Create or promote a Story (integration branch + worktree) | — |
+| `/sillok-epic` | Validate a team PRD and create a cross-repo Epic | — |
 
-| Form | Source | Notes |
-|------|--------|-------|
-| `/sillok-start` | shim at `.claude/commands/sillok-start.md` | Recommended. Resolves the latest installed plugin version at runtime. |
-| `/sillok:sillok-start` | plugin command (Claude Code namespaced form) | Canonical. Always works, even if shims were deleted. |
+Every command works two ways: the short `/sillok-start` shim (installed by `/sillok-init`) or the canonical namespaced `/sillok:sillok-start` — the shim resolves the latest installed version at runtime.
 
-Shims carry a `sillok-shim: true` frontmatter marker; re-running `/sillok-init` refreshes them safely but leaves your own custom commands at the same path untouched.
+## Concepts
 
-## Workflow
+### Stories — multi-PR features
 
-```
-/sillok-add      # capture a backlog issue — no branch/worktree; status Backlog
-/sillok-start    # create GH issue + Issue Type + assignee + branch + worktree + project Todo
-/sillok-start 41 # ADOPT existing issue #41 — full env setup, Backlog → Todo
-/sillok-design   # brainstorm + spec → project status In Design
-/sillok-execute  # write plan + dispatch subagent execution → project status In Progress
-/sillok-end      # open PR → project status In QA → (auto Done on merge)
-```
+A **Story** is an in-repo composite: one parent issue (Type `Story`) plus a real integration branch and worktree. Sub-features cut from and PR back into the integration branch; the Story itself merges to the base branch with a merge commit, preserving each sub-feature's history.
 
-State no longer lives in `stage:*` labels — it lives in the Projects v2 board's `Status` field. Issue Types (`Feature`, `Bug`, `Task`, `Story`, `Epic`) replace the old `type:*` labels. Sillok writes both: it sets the Issue Type on creation and moves the project card through the six `Status` options as the work advances.
-
-For multi-PR work (a composite within one repo), sillok uses an **integration branch** model: every Story gets a real branch (`story/issue-<N>-<slug>`) plus a worktree. Sub-features cut from and PR back to the integration branch; the Story itself merges to base with a merge commit (preserving sub-feature commits).
-
-## Story flow
-
-A **Story** is sillok's in-repo composite: one parent issue (Issue Type `Story`) plus a real integration branch and worktree, with sub-features PR'd into it.
-
-```
-/sillok-story                          # on main → creates Story + integration branch + worktree
-cd .worktrees/<story-slug>
-/sillok-start --parent <story-N>       # sub-feature cuts from the story branch
-# ... work, PR sub-feature to story ...
-/sillok-start --parent <story-N>       # another sub-feature
-# ... when all sub-features are merged into the story ...
-cd .worktrees/<story-slug>
-/sillok-end                            # opens story→main PR with merge-commit recommendation
+```bash
+/sillok-story                      # on main → create Story + integration branch + worktree
+/sillok-start --parent <story-N>   # each sub-feature cuts from the story branch
+# ...PR each sub-feature into the story, then:
+/sillok-end                        # opens the story → main PR (merge-commit recommended)
 ```
 
-**Promotion path** (starts as a normal feature, grows too big):
+Started something as a plain feature and it grew too big? Run `/sillok-story` from inside the feature branch to promote it — the Issue Type flips to `Story` and the branch is renamed.
 
-```
-/sillok-start                          # feature/issue-43-foo
-# ... halfway through realize it needs sub-features ...
-/sillok-story                          # detects feature context → offers promotion of #43
-# After confirming: branch renames to story/issue-43-foo, Issue Type flips to Story, integration branch ready.
-/sillok-start --parent 43              # add sub-feature(s)
-```
+### Cross-repo PRDs — epics
 
-## Cross-repo PRD flow
+For product work spanning multiple repos, a PRD can live as an `Epic` issue in a dedicated spec repo (configured via `epicRepo`). Code repos then attach sub-features across repositories:
 
-For product work that spans multiple code repos, sillok supports a **cross-repo PRD** pattern. The PRD itself lives as an `Epic`-typed issue in a dedicated product/spec repo, configured via `epicRepo` in `workflow.config.json`. Code repos then attach sub-features to that remote PRD by passing the qualified reference:
-
-```
-# in any code repo configured with epicRepo
-/sillok-start --parent owner/projects#42   # cuts a sub-feature linked to the PRD
+```bash
+/sillok-start --parent owner/projects#42   # sub-feature linked to a cross-repo Epic
 ```
 
-Cross-repo `Closes #N` syntax is not honored by GitHub, so PRD closure stays manual — a PM closes the PRD issue once all linked sub-features across repos have shipped. Sillok records the parent reference in the sub-feature's body and on the project board so the linkage is auditable, but it never tries to auto-close the PRD.
+This completes the `Epic → Story → Feature` hierarchy across repositories. Cross-repo `Closes #N` isn't honored by GitHub, so PRD closure stays a deliberate manual step.
 
-## Config
+## In practice
 
-`.claude/sillok/workflow.config.json` is the only file the plugin reads from your project. It records:
+- **You can reconstruct any feature later.** The issue carries the spec, the key decisions, the plan, and the PR — reading one issue tells the whole story with no archaeology across tools.
+- **Decisions survive the session.** Even work run under full-auto records its judgment calls in the issue's `## Key decisions`, so "why did we do it this way?" has an answer.
+- **Onboarding and handoff get easier.** A consistent pipeline means anyone — or any agent — can pick up where another left off, and the board status says exactly where a feature stands.
+- **The board reflects reality on its own.** Because sillok sets status at each stage and GitHub closes issues on merge, the project board stops drifting from the code.
+- **Less tool-switching.** Spec, tracking, and code share one GitHub thread instead of scattering across Notion, a tracker, and git.
 
-- `repo` — `owner/name` for the GitHub repo
-- `baseBranch` — branch new feature branches are cut from
-- `branchPrefix` — template, e.g. `{type}/issue-` (default), `{user}/issue-`, or a literal like `feat/`. `{type}` resolves to the issue's Issue Type (`feature`/`bug`/`task`/`story`/`epic`); `{user}` resolves to your git user name.
-- `language` — body generation language: `"auto"` (default, matches session language), `"ko"`, or `"en"`. Section headers stay English for parsing; prose follows the chosen language.
-- `orgMode` — `true` for org repos (Issue Types + Projects v2 APIs), `false` (default) for personal repos (falls back to label-based type tracking).
-- `automation.{fullAuto}` — boolean, default `false`. When `true`, the `sillok:workflow` orchestrator chains start → design → execute → end without per-stage confirmation, stopping after PR creation (it never merges). An absent key means propose mode.
-- `epicRepo` — *optional.* `owner/name` of a separate repo where Epic-typed PRD issues live, for cross-repo PRD work. Leave empty if PRDs live in the same repo as code.
-- `project.{owner, number, statusField, statuses, priorityField, priorities}` — Projects v2 binding. `owner` is the org/user that owns the project, `number` is the project number from its URL, `statusField` is the single-select field name (default `Status`), and `statuses` maps sillok's six logical phases (`backlog` / `todo` / `design` / `progress` / `review` / `done`) to the option names on your board (defaults: `Backlog`, `Todo`, `In Design`, `In Progress`, `In QA`, `Done`). On org repos, priority is set via the board's Priority single-select: `priorityField` is its field name (default `Priority`), and `priorities` maps `p1`–`p4` to its option names (defaults: `Urgent`, `High`, `Medium`, `Low`); `/sillok-init` auto-creates the field when absent. User repos keep the `p1`–`p4` labels instead.
-- `types.{list, defaults}` — Issue Type configuration. `list` is the Issue Types sillok expects to exist on the org (default: `["Epic", "Story", "Feature", "Task", "Bug"]`). `defaults` maps sillok roles (`feature`, `composite`, `epic`) to the Issue Type used when creating each (defaults: `Feature`, `Story`, `Epic`).
-- `worktree.{enabled,dir,copyFiles}` — worktree behavior and what gitignored files to copy into new worktrees
-- `install` — command run after a worktree is created (e.g. `pnpm install`)
-- `verify.{lint,typecheck,format}` — commands the verify-gate runs (empty = skip that step)
-- `docs.{specs,plans}` — where spec and plan files live
-- `commit.coAuthor` — optional commit trailer
-- `milestone.{naming,sprintWeeks,weekStart}` — sprint milestone convention
-- `labels.{priorities,areas,natures,defaults}` — label taxonomy. `priorities` is the priority ladder (`p1`–`p4`) — applied as labels on user-mode repos only; org repos record priority on the board's Priority field instead. `natures` is the cross-cutting label class — orthogonal traits like `improvement`, `refactor`, `infra`, `docs`, `security`, `performance` — applied alongside an Issue Type. `areas` is proposed during `/sillok-init` by an LLM classification of the project's pruned directory tree (`scripts/project-tree.sh`) — vertical business areas (e.g. `auth`, `wallet`) vs horizontal technical layers (e.g. `controller`, `dto`), confirmed once before labels are created; edit by hand or ask Claude to swap entries before re-running label bootstrap.
+## Configuration
 
-A JSON Schema (`schema/v1.json`) is referenced from the config via `$schema` so editors offer validation.
+`/sillok-init` writes `.claude/sillok/workflow.config.json` — the only file sillok reads from your project. Key fields:
 
-## Skills bundled
+| Field | Purpose |
+|-------|---------|
+| `repo`, `baseBranch` | Target repo and the branch features are cut from |
+| `branchPrefix` | Branch template, e.g. `{type}/issue-` |
+| `orgMode` | `true` for org repos (Issue Types + Projects v2), `false` for personal (label fallback) |
+| `project.*` | Projects v2 binding — owner, number, Status/Priority field + option mappings |
+| `types.*` | Issue Types sillok expects (`Epic` / `Story` / `Feature` / `Task` / `Bug`) |
+| `epicRepo` | Optional separate repo where Epic/PRD issues live (cross-repo work) |
+| `automation.fullAuto` | Chain stages unprompted (never merges); absent = propose mode |
+| `worktree.*`, `install` | Worktree behavior + post-create install command |
+| `verify.*` | lint / typecheck / format commands the verify-gate runs |
+| `labels.*`, `milestone.*` | Label taxonomy (natures / areas / priorities) + sprint-milestone naming |
+| `language` | Body-generation language: `auto` / `ko` / `en` |
 
-- `sillok:workflow` — stage orchestrator (the auto-triggering entry point; reads `automation.fullAuto`)
-- `sillok:start` / `sillok:add` / `sillok:design` / `sillok:execute` / `sillok:end` / `sillok:story` / `sillok:init` — per-stage skill bodies behind the commands above (not directly user-invocable)
-- `sillok:verify-gate` — whole-branch verification (lint/typecheck/format auto-fix → code review)
-- `sillok:verify-spec-gate` — spec compliance reference (patterns, principles, smells)
-- `sillok:gh-issue-management` — canonical GitHub-issue procedure
+A JSON Schema (`schema/v1.json`) is referenced via `$schema` so editors offer validation.
 
-## Files in your project after `/sillok-init`
+## How it works
+
+- **Thin commands, skills do the work.** Each `/sillok-*` command is a ~15-line pointer; the real procedure lives in `skills/<stage>/SKILL.md`, and a `sillok:workflow` orchestrator owns the stage chain (propose mode by default; full-auto stops after PR creation and never merges).
+- **Deterministic state in bash, judgment in the skill.** Expensive state derivation (current branch, issue metadata, plan task counts) runs in `precompute-*.sh` scripts that print one markdown block the skill reads as ground truth — cheaper and more reliable than LLM shell round-trips.
+- **A SessionStart hook** injects a compact context block (automation mode, branch ↔ issue) into every session of a configured project — silent and network-free outside sillok projects.
+- **Engineering maturity (v3.4.0).** The skill prompts were reviewed against skill-writing best practices ("writing-great-skills"): duplicated contracts single-sourced into a shared rule template, irreversible-mutation steps (link-before-push, sub-issue linking, priority) extracted into guarded helpers so call sites can't reorder them, progressive-disclosure subfiles split out of the largest skills, and new command-surface guard tests added — a behavior-preserving pass that made the plugin's own internals as auditable as the workflow it enforces.
+
+## What gets installed
+
+After `/sillok-init`, everything sillok owns lives under `.claude/sillok/` plus pointer shims under `.claude/commands/`:
 
 ```
 your-project/
 ├── .claude/
 │   ├── sillok/
 │   │   ├── workflow.config.json
-│   │   └── rules/
-│   │       ├── sillok-workflow.md
-│   │       ├── gh-issue-conventions.md
-│   │       ├── pr-convention.md
-│   │       ├── commit-conventions.md
-│   │       ├── worktree-setup.md
-│   │       └── spec-driven-development.md
+│   │   └── rules/            # workflow, gh-issue, pr, commit, worktree, spec-driven, output-language
 │   └── commands/
-│       ├── sillok-add.md         # shim (pointer-only, ~10 lines)
-│       ├── sillok-start.md
-│       ├── sillok-design.md
-│       ├── sillok-execute.md
-│       ├── sillok-end.md
-│       └── sillok-story.md
+│       └── sillok-*.md       # shim commands (sillok-shim: true — refreshed by re-init)
 ├── docs/superpowers/
-│   ├── specs/
-│   └── plans/
-└── CLAUDE.md  # @-import block appended
+│   ├── specs/                # design specs
+│   └── plans/                # implementation plans
+└── CLAUDE.md                 # @-import block appended
 ```
 
-Everything sillok owns is under `.claude/sillok/` plus 6 shim files under `.claude/commands/sillok-*.md` (carrying `sillok-shim: true` frontmatter so re-init can refresh them without touching your own commands). Your own `.claude/rules/`, other `.claude/commands/`, etc. are not touched.
+Your own `.claude/rules/`, other commands, and files are left untouched.
+
+## Roadmap
+
+- **A GitHub repo as a team's single source of truth.** Beyond dev issues, grow a repo into the home for PRDs, ADRs, and cross-team documents — the durable knowledge base a team actually works from.
+- **Automated doc authoring.** Extend sillok so the same spec-driven flow that produces feature issues also helps draft and maintain those PRDs and ADRs — capturing decisions as they're made, not reconstructed after the fact.
+- **Agent-ready delegation.** With the workflow made explicit and recorded, hand an entire feature to an agent that runs the same pipeline — issue, spec, plan, PR — under the same guardrails a human follows.
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+MIT — see [LICENSE](LICENSE).
