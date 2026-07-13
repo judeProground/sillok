@@ -93,6 +93,8 @@ Do NOT layer extra mandatory gates per task on top. The skill itself decides whe
 
 ## Step 8: Final whole-branch review — REQUIRED
 
+The spec written during `/sillok-design` is the canonical statement of what the implementation must do. Spec acceptance-criteria violations are not allowed without explicit user agreement — if the implementation drifted from the spec (a requirement turned out infeasible, or a better idea surfaced during build), surface the proposed deviation and get explicit user agreement before handing off to `/sillok-end`. Silent drift is not acceptable.
+
 After all plan tasks are marked complete in TodoWrite, run the whole-branch verification before handing off to `/sillok-end`. Do NOT skip this step even for trivial features — whole-branch reviewers regularly catch things per-task reviews miss (consumers in `pages/` / `widgets/` outside the spec's audit zone, cross-task interactions, drift from the spec's invariants).
 
 1. **Dispatch a final code-reviewer subagent** for the whole-feature diff (`<base-sha>..HEAD`) using the `superpowers:requesting-code-review` template. Reviewer scope is the full diff, not the most recent task.

@@ -1,6 +1,6 @@
 # Sillok 실록
 
-[![version](https://img.shields.io/badge/version-3.4.0-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-4.0.0-blue)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2)](https://docs.claude.com/en/docs/claude-code)
 
@@ -81,6 +81,7 @@ cd /path/to/your-project
 | `/sillok-end` | Open the PR (`Closes #N`), self-assign | `In QA` |
 | `/sillok-story` | Create or promote a Story (integration branch + worktree) | — |
 | `/sillok-epic` | Validate a team PRD and create a cross-repo Epic | — |
+| `/sillok-prd` | Snapshot a completed PRD into the spec repo (record-only) | — |
 
 Every command works two ways: the short `/sillok-start` shim (installed by `/sillok-init`) or the canonical namespaced `/sillok:sillok-start` — the shim resolves the latest installed version at runtime.
 
@@ -142,7 +143,7 @@ A JSON Schema (`schema/v1.json`) is referenced via `$schema` so editors offer va
 - **Thin commands, skills do the work.** Each `/sillok-*` command is a ~15-line pointer; the real procedure lives in `skills/<stage>/SKILL.md`, and a `sillok:workflow` orchestrator owns the stage chain (propose mode by default; full-auto stops after PR creation and never merges).
 - **Deterministic state in bash, judgment in the skill.** Expensive state derivation (current branch, issue metadata, plan task counts) runs in `precompute-*.sh` scripts that print one markdown block the skill reads as ground truth — cheaper and more reliable than LLM shell round-trips.
 - **A SessionStart hook** injects a compact context block (automation mode, branch ↔ issue) into every session of a configured project — silent and network-free outside sillok projects.
-- **Engineering maturity (v3.4.0).** The skill prompts were reviewed against skill-writing best practices ("writing-great-skills"): duplicated contracts single-sourced into a shared rule template, irreversible-mutation steps (link-before-push, sub-issue linking, priority) extracted into guarded helpers so call sites can't reorder them, progressive-disclosure subfiles split out of the largest skills, and new command-surface guard tests added — a behavior-preserving pass that made the plugin's own internals as auditable as the workflow it enforces.
+- **Engineering maturity.** The plugin holds itself to the rigor it enforces. Skill prompts were reviewed against skill-writing best practices — single-sourced contracts, irreversible-mutation steps extracted into guarded helpers, progressive-disclosure subfiles, and command-surface guard tests. In v4.0.0 the always-mounted rule set was reclassified into on-trigger skills, cutting the context injected into every session by ~67% (≈8,000 → 2,650 tokens) with no workflow change.
 
 ## What gets installed
 
@@ -153,7 +154,7 @@ your-project/
 ├── .claude/
 │   ├── sillok/
 │   │   ├── workflow.config.json
-│   │   └── rules/            # workflow, gh-issue, pr, commit, worktree, spec-driven, output-language
+│   │   └── rules/            # workflow, commit, output-language (resident) + browse-only stubs
 │   └── commands/
 │       └── sillok-*.md       # shim commands (sillok-shim: true — refreshed by re-init)
 ├── docs/superpowers/

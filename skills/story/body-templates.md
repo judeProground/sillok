@@ -1,6 +1,6 @@
 # Story body templates
 
-The two issue-body shapes the `sillok:story` stage composes. **Standalone story body** is used in SKILL.md §2 (Standalone creation, step 3); **Promotion body rewrite** is used in SKILL.md §3 (Promotion, step 6h). Both follow the Story template in `.claude/sillok/rules/gh-issue-conventions.md`.
+The two issue-body shapes the `sillok:story` stage composes. **Standalone story body** is used in SKILL.md §2 (Standalone creation, step 3); **Promotion body rewrite** is used in SKILL.md §3 (Promotion, step 6h). Both follow the Story template in `sillok:gh-issue-management`'s `body-templates.md`.
 
 ## Standalone story body
 

@@ -9,7 +9,7 @@ Canonical procedure for every GH-issue-touching operation in your project.
 
 > **Repository:** All `gh` commands target the repository defined in `.claude/sillok/workflow.config.json` under the `repo` key. Where this skill shows literal templates (`${REPO}`, `${OWNER}`, `${NAME}`, `${BRANCH_PREFIX}`), substitute the configured values at runtime.
 
-**Core principle:** Schema is declarative; flows are procedural. Both live in this skill. The rule file `.claude/sillok/rules/gh-issue-conventions.md` is the always-on source of truth — this skill applies it.
+**Core principle:** Schema is declarative; flows are procedural. Both live in this skill — this is the single source of truth for GH issue conventions. The rule file `.claude/sillok/rules/gh-issue-conventions.md` is a thin browse-only pointer stub (no longer `@`-imported into CLAUDE.md — the schema loads with this skill on trigger); if it ever disagrees with this skill, this skill wins.
 
 ## When to use this skill
 
@@ -40,13 +40,13 @@ Verb-form imperative. Examples:
 
 ### Body templates (per type)
 
-The body shape differs by issue type. Full templates with copy-pasteable skeletons live in `.claude/sillok/rules/gh-issue-conventions.md` under "Issue Body". Quick reference:
+The body shape differs by issue type. Full copy-pasteable skeletons live in `body-templates.md` (next to this file) — consult it whenever composing or updating an issue body. Quick reference:
 
-**Feature / Task** (optionally with `improvement` / `infra` / `refactor` nature labels) — Parent (if sub) → Summary → PRD link → Design (inline spec) → Plan link → PR link → Done note. The Design / Plan link / PR link / Done note sections are filled progressively by `/sillok-{design,execute,end}`.
+**Feature / Task** (optionally with `improvement` / `infra` / `refactor` nature labels) — Parent (if sub) → Summary → Key decisions → PRD link → Design (inline spec) → Plan link → PR link → Done note. The Design / Plan link / PR link / Done note sections are filled progressively by `/sillok-{design,execute,end}`.
 
-**Story** — 1-line summary → Integration branch → Architecture (optional) → Sub-issues checkbox list → Context → Non-goals. NO Design / Plan / PR sections (those live on sub-issues).
+**Story** — 1-line summary → Integration branch → Key decisions → Architecture → Sub-issues checkbox list → Context → Non-goals. NO Design / Plan / PR sections (those live on sub-issues).
 
-**Epic** — Lives in the PRD repo. Cross-repo parent for a multi-repo initiative; child issues in code repos link via cross-repo sub-issue API.
+**Epic** (PRD repo only) — Summary → Metadata → PRD (Notion link + `epicRepo` path). Intentionally light, NOT the full PRD inline — the PRD lives at `<epicRepo>/<category>/<project-name>/prd.md` and must follow the team PRD template's five sections (배경/목표/실행/AI Agent Role/평가). Created by `/sillok-epic`; cross-repo parent, no Design/Plan/PR sections.
 
 **Bug** (any nature labels are optional) — Parent (if sub) → Summary → Repro → Impact → Suspected cause (optional) → PR link → Done note. Bugs skip Design entirely. Keep tight (5–10 lines).
 
@@ -81,7 +81,24 @@ Lifecycle stage lives in the project's Status single-select field, not on the is
 
 Sillok writes status via GraphQL `updateProjectV2ItemFieldValue`. The exact option names are configurable per project in `workflow.config.json` under `project.statuses`.
 
-**Priority** (default key `p3`, from `labels.defaults.priority`): four sillok levels — `p1` urgent | `p2` high | `p3` normal | `p4` low. Storage splits on `orgMode`: **user repos** carry one `p1`–`p4` label per issue; **org repos** carry NO p-label — priority lives on the org-level Priority *issue field* (`project.priorityField`, set on the issue and projected onto the board), with `project.priorities` mapping the p-keys to the org field's option names. Set via `sillok_priority_apply <issue-url> <p-key>` (org-guarded + NON-FATAL wrapper around `sillok_issue_priority_set`) by `/sillok-start`, `/sillok-story`, and `/sillok-add`; the org issue field itself is ensured (created when missing — it is API-only, not GUI-creatable) by `/sillok-init`.
+### Priority (org repos: board Priority field · user repos: p1–p4 labels)
+
+One per issue. Default `p3` (configured under `labels.defaults.priority`). The priority *mechanism* depends on `orgMode`, mirroring how Type (REST) and Stage (Projects v2 field) above document theirs.
+
+**Org repos (`orgMode: true`):** priority lives on the org-level **Priority issue field** (named per `project.priorityField`, default `Priority`) projected onto the project board — **not** a label. `/sillok-start` Step 10c sets it via `sillok_issue_priority_set`; the field itself is provisioned by `/sillok-init`. `p1`–`p4` map to the field's options via `project.priorities`:
+
+| Key  | Option (default) | Meaning          |
+| ---- | ----------------- | ---------------- |
+| `p1` | `Urgent`           | urgent            |
+| `p2` | `High`             | high              |
+| `p3` | `Medium`           | normal (default)  |
+| `p4` | `Low`              | low               |
+
+No `p1`–`p4` labels are created or applied on org repos.
+
+**User repos (`orgMode: false`):** priority is a label, one per issue, applied at issue-create time — `p1` urgent | `p2` high | `p3` normal (default — don't agonize) | `p4` low.
+
+Set via `sillok_priority_apply <issue-url> <p-key>` (org-guarded + NON-FATAL wrapper around `sillok_issue_priority_set`) by `/sillok-start`, `/sillok-story`, and `/sillok-add`; the org issue field itself is ensured (created when missing — it is API-only, not GUI-creatable) by `/sillok-init`.
 
 ### Nature (optional cross-cutting labels)
 
@@ -98,6 +115,10 @@ Nature labels describe a property orthogonal to the Issue Type. Multiple natures
 
 These are configured under `labels.natures` in `workflow.config.json`. A `Feature` typed issue can also carry the `refactor` label, etc.
 
+### Area labels
+
+`area:<slice>` labels mark the code surface touched (e.g., `area:recording`, `area:auth`). Configured under `labels.areas` in `workflow.config.json`; auto-detected during `/sillok-init` from the project layout. Multiple area labels per issue are allowed when work spans slices.
+
 ### Milestone
 
 Two-week sprints. Format `YYYY-MM-Wn` where `n = ceil(sprint_start_day / 7)`.
@@ -107,8 +128,9 @@ Two-week sprints. Format `YYYY-MM-Wn` where `n = ceil(sprint_start_day / 7)`.
 | May 4, 2026                       | `2026-05-W1`                    |
 | May 18, 2026                      | `2026-05-W3`                    |
 | May 25, 2026 (crossing into June) | `2026-05-W4` (start month wins) |
+| June 1, 2026                      | `2026-06-W1`                    |
 
-Sprints start on Monday. Issues without a milestone are valid.
+Sprints start on Monday. Issues without a milestone are valid (e.g., long-tail backlog). Alphabetical sort = chronological order, across year boundaries (`2026-12-W3` → `2027-01-W1`).
 
 ### Sub-issue linking (including cross-repo)
 
@@ -152,7 +174,7 @@ gh api graphql -f query='mutation {
 `Epic` and `Story` are the only types that may have sub-issues:
 
 1. **`Epic` parents live cross-repo.** PRDs are authored in a dedicated PRD repo and are the canonical Epic-typed issue. Child issues in code repos reference the Epic via the cross-repo sub-issue API.
-2. **`Story` parents live in-repo.** A `Story` is an in-repo composite with an `story/issue-<N>-<slug>` integration branch plus a worktree. Sub-features cut from and PR back to this integration branch.
+2. **`Story` parents live in-repo.** A `Story` is an in-repo composite with an `story/issue-<N>-<slug>` integration branch plus a worktree. Sub-features cut from and PR back to this integration branch; the `Story` PR then `--merge`s to base (preserving sub-feature commits), not `--squash`. A `Story` can itself be a cross-repo child of an `Epic` (`epic → story → feature`), attached via `/sillok-story --parent <epicRepo#N>`.
 3. **`Feature` / `Task` / `Bug` are atomic work units.** Each ships in one PR. They can be standalone (no parent) OR a sub-issue of an `Epic` or `Story`.
 4. **Decomposition trigger.** Started as a `Feature` and realized it needs sub-issues? Run `/sillok-story` to promote: type flips to `Story`, branch renames to `story/issue-<N>-<slug>`, body is rewritten as a tracking summary.
 
@@ -169,8 +191,16 @@ gh api graphql -f query='mutation {
 
 ### Branch naming
 
-- Single-issue work: `${BRANCH_PREFIX}<N>-<slug>` (e.g., `feat/issue-42-volume-picker`)
-- Umbrella (multi-issue effort): `feature/<name>` (e.g., `feature/harness`)
+`{type}/issue-<N>-<slug>` where `{type}` is the Issue Type lowercased (`feature`, `task`, `bug`, `story`) and `<N>` is the issue number — templated as `${BRANCH_PREFIX}<N>-<slug>` and configured under `branchPrefix` in `workflow.config.json`.
+
+Examples: `feature/issue-42-volume-picker`, `bug/issue-87-timer-negative`, `story/issue-100-recording-export`.
+
+Umbrella (multi-issue effort) branches spanning unrelated issues may use `feature/<name>` (e.g., `feature/harness`).
+
+### WIP limits
+
+- 3 active (`In Progress`) issues per assignee is normal.
+- Hard cap at 5 — finish something before starting new work.
 
 ## The eight flows
 
@@ -180,9 +210,10 @@ The eight issue-management flows (New Feature, Pick Up Existing, Quick Fix, New 
 
 **REQUIRED BACKGROUND:**
 
-- `.claude/sillok/rules/gh-issue-conventions.md` — authoritative rule layer (loaded via CLAUDE.md `@` import). If any value here seems wrong, the rule file wins.
-- `.claude/rules/pr-convention.md` — PR title/body/squash-merge rules
-- `.claude/rules/commit-conventions.md` — `<type>(<scope>): <subject> (#N)` format
+- `body-templates.md` (next to this file) — the four full copy-pasteable issue-body templates this skill's "Body templates" section summarizes.
+- `.claude/sillok/rules/gh-issue-conventions.md` — a thin browse-only pointer stub (no longer `@`-imported into CLAUDE.md). This skill is the source of truth; the rule file mirrors it, not the other way around.
+- `sillok:end` skill (`skills/end/SKILL.md` + `pr-body-templates.md`) — PR title/body/squash-merge rules
+- `.claude/sillok/rules/commit-conventions.md` — `<type>(<scope>): <subject> (#N)` format
 
 ## Language
 

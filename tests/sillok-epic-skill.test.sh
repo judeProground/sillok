@@ -37,12 +37,12 @@ grep -q '/sillok-start --parent' "$SKILL_MD" \
   || fail "skills/epic/SKILL.md: missing '/sillok-start --parent' output line"
 pass "contains /sillok-start --parent"
 
-# 6. Must include the graceful Notion-MCP-absent message AND the install/auth guidance
+# 6. Must include the graceful Notion-MCP-absent message AND the marketplace install command
 grep -q 'Notion MCP' "$SKILL_MD" \
   || fail "skills/epic/SKILL.md: missing Notion-MCP-absent graceful message"
 grep -q '/mcp' "$SKILL_MD" \
   || fail "skills/epic/SKILL.md: Notion-absent message must tell users to install Notion MCP and authenticate via /mcp"
-pass "contains Notion MCP absent message + install/auth guidance"
+pass "contains Notion MCP absent message + marketplace install command"
 
 echo
 echo "All sillok-epic-skill checks passed."

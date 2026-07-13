@@ -4,6 +4,14 @@
 # files, skips identical files. Never deletes. Prints a one-line summary of
 # refreshed (added or updated) files, sorted, or nothing if all were current.
 #
+# This script stays "never deletes" on purpose: to retire a rule file
+# upstream, leave a 1-line pointer stub in templates/rules/ (instead of
+# removing the file outright) so refresh overwrites the consumer's stale copy
+# with the stub rather than orphaning it. Deleting the corresponding
+# `- @.claude/sillok/rules/<file>.md` import line from a consumer's CLAUDE.md
+# is a separate concern, handled by init-bootstrap.sh's phase1 Step 8
+# removal pass (reconcile = backfill + remove-dead), not by this script.
+#
 # usage: refresh-rules.sh <dest-rules-dir> <src-rules-dir>
 set -euo pipefail
 

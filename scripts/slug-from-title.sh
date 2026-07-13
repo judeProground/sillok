@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # sillok — derive a worktree/branch slug from an issue title.
-# Outputs `<N>-<title-slug>` where the title slug follows the rules in
-# gh-issue-conventions.md (in .claude/sillok/rules/) (lowercase, articles stripped, non-alphanum runs to
-# single hyphens, trimmed, ≤40 chars truncated at last hyphen).
+# Outputs `<N>-<title-slug>` where the title slug follows the branch-naming
+# rules in the sillok:gh-issue-management skill (lowercase, articles stripped,
+# non-alphanum runs to single hyphens, trimmed, ≤40 chars truncated at last hyphen).
 #
 # Branch/worktree names are kept ASCII by design (clean URLs, broad tool
 # support). This script only normalizes ASCII; non-English titles (e.g.

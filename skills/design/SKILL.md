@@ -168,7 +168,7 @@ Read the locked spec file:
 spec_content=$(cat <SPEC_DIR>/<date>-<slug>.md)
 ```
 
-Reconstruct the issue body in the conventional section order (per `gh-issue-conventions.md`: Parent → Summary → **Key decisions** → PRD link → **Design (inline content)** → Plan link → PR link → Done note). Preserve the existing Parent / Summary / PRD link sections from the body fetched in step 1; insert `## Key decisions` confirmed in step 6; replace or insert the `## Design` section with the full spec content.
+Reconstruct the issue body in the conventional section order (per `sillok:gh-issue-management`'s Feature/Task template: Parent → Summary → **Key decisions** → PRD link → **Design (inline content)** → Plan link → PR link → Done note). Preserve the existing Parent / Summary / PRD link sections from the body fetched in step 1; insert `## Key decisions` confirmed in step 6; replace or insert the `## Design` section with the full spec content.
 
 Post the new body via stdin (`-F -`) to avoid quoting headaches with backticks, dollar signs, and code blocks inside the spec:
 

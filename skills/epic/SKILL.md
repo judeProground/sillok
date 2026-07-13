@@ -152,12 +152,27 @@ gh api -X PATCH \
 
 If this PATCH fails, WARN: "Epic Issue Type을 설정하지 못했습니다 — epicRepo가 org repo가 아니거나 Epic 타입이 정의돼 있지 않을 수 있습니다" and CONTINUE (the Epic issue is already created; Issue Type failure is non-fatal). The epic URL is still returned.
 
+## Step 7b: Add to project board + set status Todo
+
+Add the Epic to the configured project board and set its Status, the same way `/sillok-start` and `/sillok-story` do for their issues — Projects v2 boards accept issues from any repo in the org, so the cross-repo Epic lands on the same board as its future sub-issues. Both calls are NON-FATAL (`|| true`): the consumer's project config may not exist or may not be reachable from epicRepo, and the Epic issue is already created either way.
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/project.sh"
+EPIC_ITEM_ID=$(sillok_project_item_add "$EPIC_URL" 2>/dev/null || true)
+if [[ -n "$EPIC_ITEM_ID" ]]; then
+  sillok_project_status_set "$EPIC_ITEM_ID" todo || true
+else
+  echo "[sillok] Epic을 프로젝트 보드에 추가하지 못했습니다 — 보드에서 수동으로 추가하세요: $EPIC_URL" >&2
+fi
+```
+
 ## Step 8: Output
 
 Print:
 
 - Epic URL: `<EPIC_URL>`
 - PRD: `<PRD_URL>`
+- Board: `Todo` (or "보드 추가 실패 — 수동 추가 필요" when Step 7b warned)
 
 Then print the exact command for the user's next step:
 

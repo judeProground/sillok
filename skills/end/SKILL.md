@@ -85,7 +85,7 @@ Use the `superpowers:finishing-a-development-branch` skill for the merge/PR deci
 
 ## Step 5: Compute PR body
 
-Construct the PR body per `pr-convention.md`. Read `${CLAUDE_PLUGIN_ROOT}/skills/end/pr-body-templates.md` and follow its **Feature PR body** section (the template plus the Summary-section requirements).
+Construct the PR body per the templates below. Read `${CLAUDE_PLUGIN_ROOT}/skills/end/pr-body-templates.md` and follow its **Feature PR body** section (the template plus the Summary-section requirements).
 
 ## Step 5b: Story-finalize PR body (only when MODE=story-finalize)
 
@@ -110,6 +110,25 @@ gh pr create \
 `--assignee "@me"` self-assigns the PR to its author, mirroring the issue self-assign convention (`gh issue edit <N> --add-assignee @me` in `/sillok-start`). The author can always be assigned to their own PR, so this never blocks creation. Applies to all modes (single-issue, umbrella, story-finalize) since this is the single create call.
 
 Capture the PR URL from output.
+
+## Step 6b: Merge into QA branch (if configured)
+
+Only when the PR was just created in Step 6 (skip in the existing-PR update-only flow from Step 2 check #4 — that path never pushes). The `### QA branch` section from precompute (step 1) tells you whether `qaBranch` is set and present on origin.
+
+Run the merge helper — it reads `qaBranch` from config and owns the server-side merge mechanics:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/qa-merge.sh "$REPO" "<branch>" "$N"
+```
+
+Read the `QA-MERGE:` result line and report it to the user:
+
+- `skipped (...)` → state the reason (not configured / branch not on origin); nothing else to do.
+- `merged <sha>` / `already-up-to-date` → confirm the QA branch now contains this work.
+- `conflict` → relay the manual-resolution commands the script printed. The merge did not happen; the PR is unaffected.
+- `failed (...)` → surface the reason.
+
+The QA merge is a non-fatal add-on: any outcome (including conflict/failed) leaves the PR, the `In QA` status transition, and the issue-body update to proceed normally. Applies to all modes (single-issue, umbrella, story-finalize). Under full-auto, report the outcome and continue — a QA-merge failure is a skippable side-step, not a chain-stopping demotion event.
 
 ## Step 7: Update project status
 
@@ -153,13 +172,16 @@ If no such line exists: do NOT add one. GitHub's native sub-issue panel renders 
 
 ## Step 10: No auto-merge
 
-Print PR URL. STOP. Do NOT run `gh pr merge`. The user reviews the PR (themselves or via reviewers) and merges manually via `gh pr merge --squash` or the GitHub UI.
+Print PR URL. STOP. Do NOT run `gh pr merge`. The user reviews the PR (themselves or via reviewers) and merges manually via `gh pr merge --squash` or the GitHub UI. Squash is the default merge strategy because it keeps the base branch history linear and readable — one commit per feature, not a pile of WIP commits (the story-finalize exception is `--merge`, per Step 5b).
+
+Reviews are optional for solo-dev but recommended for high-risk or cross-cutting changes.
 
 ## Step 11: Output
 
 Print:
 
 - PR URL: `<URL>`
+- QA merge: `<merged into <qaBranch> ✓ | skipped (reason) | conflict ⚠️ | failed (reason)>` (omit when `qaBranch` unset)
 - Project status on `#<N>`: `In QA`
 - Issue body updated with PR link
 - Parent checkbox updated (if legacy syntax present at `#<M>`)

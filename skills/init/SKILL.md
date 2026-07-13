@@ -8,7 +8,7 @@ user-invocable: false
 
 You are running sillok `init` to bootstrap the current project for sillok.
 
-**Init takes no arguments and asks at most two questions per run**, drawn from two conditional ones — a project URL (only when auto-detection yields nothing — see Step 2a-2) and the auto-detected area labels (Step 8b, interactive runs only). Org-mode runs also provision the org Priority issue field (Step 9c) — but that step asks nothing: the field is created from config to match the fixed `project.priorities` option names. Under auto-mode it asks nothing at all. If detection of any field fails, the field is left empty in the generated config and a warning is printed; the user edits `.claude/sillok/workflow.config.json` afterward.
+**Init takes no arguments and asks at most three questions per run**, drawn from three conditional ones — a project URL (only when auto-detection yields nothing — see Step 2a-2), a QA/deploy branch (only when remote QA-branch candidates are detected — see Step 2c), and the auto-detected area labels (Step 8b, interactive runs only). Org-mode runs also provision the org Priority issue field (Step 9c) — but that step asks nothing: the field is created from config to match the fixed `project.priorities` option names. Under auto-mode it asks nothing at all. If detection of any field fails, the field is left empty in the generated config and a warning is printed; the user edits `.claude/sillok/workflow.config.json` afterward.
 
 **Auto-mode contract:** all three orchestration calls run unconditionally — phase1 (Steps 1–8, deterministic, including the shim install at Step 7b), the in-skill area classification (Step 8b), and phase2 (Steps 9–10). Step 8b reads the directory tree that phase1 already emitted (it does not re-run `project-tree.sh`), then classifies and confirms; under auto-mode that confirmation auto-accepts the classified list (written to the git-tracked config), so it never blocks. Every step writes only to plugin-managed paths and carries idempotent safeguards documented in its own header.
 
@@ -30,6 +30,7 @@ while IFS='=' read -r key val; do
   case "$key" in
     REPO) REPO="$val" ;;
     BASE_BRANCH) BASE_BRANCH="$val" ;;
+    QA_CANDIDATES) QA_CANDIDATES="$val" ;;
     ORG_MODE) ORG_MODE="$val" ;;
     OWNER_TYPE) OWNER_TYPE="$val" ;;
     STACK) STACK="$val" ;;
@@ -98,6 +99,33 @@ if [[ "$PROJ_NUM" == "0" ]]; then
     else
       echo "[sillok-init] URL did not match a GitHub project — skipping project setup."
     fi
+  fi
+fi
+```
+
+## Step 2c: QA/deploy branch (conditional prompt)
+
+phase1 emits `QA_CANDIDATES` — a comma-separated list of remote branches whose name contains `qa` or `deploy` (empty when none / no remote). This sets `qaBranch`, which `/sillok-end` merges the feature branch into after opening the PR.
+
+Ask **only** when there is something to pick and a human is driving:
+
+- **`QA_CANDIDATES` empty** → skip; leave `qaBranch` as `""`.
+- **Auto-mode (non-interactive)** → skip; leave `qaBranch` as `""`. Auto-merging into a shared deploy branch is never turned on by a guess — the user sets it explicitly. Preserves the "never blocks" contract.
+- **Existing `qaBranch` already non-empty** → skip (same preserve rule as Step 8b area labels):
+
+  ```bash
+  EXISTING_QA=$(jq -r '.qaBranch // ""' "$CFG" 2>/dev/null)
+  ```
+
+Otherwise present the candidates (split `QA_CANDIDATES` on commas) plus a "none / skip" choice via `AskUserQuestion`. On a chosen branch, write it to `CFG`:
+
+```bash
+if [[ -n "$QA_CANDIDATES" && -z "$EXISTING_QA" ]]; then
+  # (present split candidates + "skip" via AskUserQuestion; $qa_choice = picked branch or "")
+  if [[ -n "${qa_choice:-}" ]]; then
+    tmp=$(mktemp)
+    jq --arg qa "$qa_choice" '.qaBranch = $qa' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+    echo "[sillok-init] QA branch set: $qa_choice"
   fi
 fi
 ```

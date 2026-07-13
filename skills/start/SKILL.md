@@ -227,6 +227,20 @@ The `-b <branch> origin/main` form inside the script creates a new branch named 
 
 Note: `git worktree` does NOT auto-symlink dependency directories (`node_modules`, `vendor`, etc.) — the `install` command run inside the script gets a fresh install for the new worktree.
 
+### copyFiles reference
+
+The `worktree.copyFiles` patterns (configured in `workflow.config.json`) are typically gitignored config files — secrets, build configs, generated credentials — that the project needs but git does not track:
+
+| File pattern | Typical purpose |
+| ------------ | --------------- |
+| `.env`, `.env.*` | Local environment variables |
+| `eas.json` | Expo Application Services config |
+| `google-services.json` | Android Firebase config |
+| `GoogleService-Info.plist` | iOS Firebase config |
+| `<project>.config.local.js` | Per-developer overrides |
+
+Edit `worktree.copyFiles` to add or remove patterns specific to your project. The list is read at runtime by `setup-feature-worktree.sh`.
+
 ## Step 10b: Link branch to issue (Development panel), THEN push
 
 `sillok_link_and_push` bakes in the create-only ordering: resolve issue node id → `createLinkedBranch` → `git push -u`. The link MUST precede the push — once the branch exists on the remote the mutation silently no-ops (see `sillok:gh-issue-management` → "Linked branches"). Under `orgMode=false` the link helper no-ops and the push creates the remote branch; under org mode the mutation creates the ref and the push just sets the upstream.

@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 # sillok — workflow.config.json reader.
 # Resolves config values with this precedence:
-#   1. project's .claude/sillok/workflow.config.json (relative to git repo root)
-#   2. plugin's templates/workflow.config.json (default fallback)
+#   1. per-user override .claude/sillok/workflow.config.local.json (gitignored)
+#   2. project's .claude/sillok/workflow.config.json (relative to git repo root)
+#   3. plugin's templates/workflow.config.json (default fallback)
+#
+# The local override is per-developer and NOT committed (sillok-init gitignores
+# it). It lets one person opt out of a team-shared setting without touching the
+# committed config — e.g. `{"qaBranch": ""}` turns off /sillok-end's QA merge
+# just for them. A key PRESENT in the local file wins even when its value is an
+# empty string (that is the whole point — "" is a real override, not "unset"),
+# which is why the local layer uses present-wins semantics rather than the
+# non-empty check the project/default layers use.
 #
 # Usage:
 #   SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -37,15 +46,36 @@ _sillok_project_config() {
   fi
 }
 
+# Per-user override file (gitignored). Highest precedence when present.
+_sillok_local_config() {
+  local root
+  root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+  if [[ -n "$root" && -f "$root/.claude/sillok/workflow.config.local.json" ]]; then
+    echo "$root/.claude/sillok/workflow.config.local.json"
+  fi
+}
+
 _sillok_default_config() {
   echo "${CLAUDE_PLUGIN_ROOT:-$_SILLOK_PLUGIN_ROOT_FALLBACK}/templates/workflow.config.json"
 }
 
 sillok_config() {
   local key="$1"
-  local project default value
+  local localcfg project default value
+  localcfg=$(_sillok_local_config)
   project=$(_sillok_project_config)
   default=$(_sillok_default_config)
+
+  # Per-user override: a key PRESENT (even as "") wins. `getpath` returns JSON
+  # null for an absent path, which `jq -r` prints as the string "null"; any
+  # other output (including empty string) means the key is present and overrides.
+  if [[ -n "$localcfg" ]]; then
+    value=$(jq -r --arg k "$key" 'getpath($k | split("."))' "$localcfg" 2>/dev/null || echo "null")
+    if [[ "$value" != "null" ]]; then
+      echo "$value"
+      return 0
+    fi
+  fi
 
   if [[ -n "$project" ]]; then
     value=$(jq -r --arg k "$key" 'getpath($k | split("."))' "$project" 2>/dev/null || echo "null")
@@ -72,6 +102,10 @@ sillok_config_array() {
   project=$(_sillok_project_config)
   default=$(_sillok_default_config)
 
+  # NOTE: the per-user local override (see sillok_config) intentionally applies
+  # to SCALAR keys only — the per-user settings it exists for (qaBranch,
+  # automation.fullAuto, language) are all scalars. Array keys (labels.*) are
+  # team-shared workflow structure, so they resolve project → template as usual.
   if [[ -n "$project" ]]; then
     output=$(jq -r --arg k "$key" 'getpath($k | split(".")) // [] | .[]' "$project" 2>/dev/null) || true
     if [[ -n "$output" ]]; then

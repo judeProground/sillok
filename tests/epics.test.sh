@@ -55,6 +55,25 @@ echo "$out" | grep -q '\[Story\] Notif system' || fail "local story expected"
 echo "$out" | grep -q 'acme/projects' && fail "no epicRepo configured — must not query it"
 pass "epicRepo unset → local only"
 
+echo "test: epics found but NO local stories → still exits 0 (regression #99)"
+# The bug combo: the function's last command was a bare `[ -n "$local_stories" ] && printf`,
+# which leaked exit 1 when local_stories was empty — killing set -e callers
+# (precompute-start/add/story) right after the Open epics block.
+cat > "$TMP/bin/gh" <<'GH'
+#!/usr/bin/env bash
+args="$*"
+case "$args" in
+  *"type:Epic"*) echo '  - (in acme/projects) #5 [Epic] Onboarding';;
+  *) ;;
+esac
+GH
+chmod +x "$TMP/bin/gh"
+rc=0
+out=$(mkproject true "acme/projects") || rc=$?
+[ "$rc" -eq 0 ] || fail "function leaked exit $rc when local stories empty (the set -e killer)"
+echo "$out" | grep -q '\[Epic\] Onboarding' || fail "epic candidate expected, got: $out"
+pass "epics-only result returns 0"
+
 echo "test: nothing found → standalone line"
 # gh stub returns empty output for all queries → both local_stories and epic_candidates are empty.
 cat > "$TMP/bin/gh" <<'GH'

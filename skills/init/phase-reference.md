@@ -52,7 +52,7 @@ Handled by phase1 via `write-shim-commands.sh` → emits `SHIM_STATUS`. This ste
 
 ### Step 8: Append `CLAUDE.md` imports
 
-Handled by phase1 → emits `CLAUDE_MD_STATUS`. The append is guarded by the `## Sillok workflow rules` marker (`grep -q`), so a re-run never duplicates the import block. When the marker is already present, phase1 still backfills any `@.claude/sillok/rules/*.md` import line from the snippet that is missing from `CLAUDE.md` (idempotent line-level `grep -Fxq`), so new rules reach existing consumers on re-init.
+Handled by phase1 → emits `CLAUDE_MD_STATUS`. The append is guarded by the `## Sillok workflow rules` marker (`grep -q`), so a re-run never duplicates the import block. When the marker is already present, phase1 reconciles: it backfills any `@.claude/sillok/rules/*.md` import line from the snippet that is missing from `CLAUDE.md` (idempotent line-level `grep -Fxq`), so new rules reach existing consumers on re-init, and it removes any sillok-rule import line in `CLAUDE.md` whose rule was deleted upstream (backfill + remove-dead, both idempotent; user-custom `@import` lines to other paths are never touched).
 
 ## What each phase2 step does (Steps 9, 9b, 9c, 10)
 

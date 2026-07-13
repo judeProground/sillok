@@ -26,6 +26,10 @@ echo "fullAuto=$(sillok_config automation.fullAuto)"
 
 Dot-path nested reads work. **An absent key == `false` == propose mode** — `config.sh` falls back per-key to the plugin template, which ships `automation.fullAuto: false`. Only the literal value `true` enables full-auto.
 
+## Step 2b: Model discipline (Fable sessions)
+
+If the main session model is Fable (you know your own model from the system prompt), invoke `sillok:fable-orchestra` before routing and apply its discipline to every stage you route from here on — Fable orchestrates and makes design judgments; long-form writing (spec/plan documents) and implementation go to sonnet/opus workers per that skill's per-stage routing table. On any other session model, skip this step.
+
 ## Step 3: Determine current position
 
 **Handoff override:** when this skill is invoked as a STAGE-COMPLETION handoff (a stage just finished and printed its outputs), the just-completed stage and its printed outputs OVERRIDE branch sniffing — you already know where you are. In particular, after `start`, `cd` into the worktree path that start printed BEFORE routing, then route to `design` — the current shell is still outside the new worktree, so branch sniffing would misroute. Branch sniffing below is the fallback for cold entry only.

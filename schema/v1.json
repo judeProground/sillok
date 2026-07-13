@@ -16,6 +16,10 @@
       "type": "string",
       "description": "The branch new feature branches are cut from. Usually 'main'."
     },
+    "qaBranch": {
+      "type": "string",
+      "description": "Optional QA/deploy branch (e.g. 'deploy/qa'). When set, /sillok-end merges the current branch into this branch (server-side) right after opening the PR. Empty = disabled. Merge is non-fatal: conflicts or a missing branch warn but never block the PR flow."
+    },
     "branchPrefix": {
       "type": "string",
       "description": "Prefix prepended to feature branches before the slug. Supports {type} (issue type label) and {user} (git user.name, alphanumeric lowercase) placeholders. Default: '{type}/issue-' produces 'feature/issue-42-add-x', 'epic/issue-42-add-x', etc. A literal string with no placeholders produces the same prefix for every branch.",
@@ -31,6 +35,14 @@
       "type": "string",
       "pattern": "^[^/]+/[^/]+$",
       "description": "Optional cross-repo PRD repository slug ('<owner>/<name>'). When set, /sillok-start auto-suggests open epics from this repo and accepts cross-repo parent linking."
+    },
+    "prd": {
+      "type": "object",
+      "properties": {
+        "basePath": { "type": "string", "default": "projects" },
+        "domains": { "type": "array", "items": { "type": "string" } }
+      },
+      "description": "Config for /sillok-prd. 'basePath' is the root directory in epicRepo PRDs are recorded under (e.g. 'projects'); 'domains' lists the valid top-level domain folders (e.g. basic/pro/ai-native/infra/common) a PRD can be filed into."
     },
     "orgMode": {
       "type": "boolean",

@@ -86,7 +86,7 @@ BODY
    On a chosen `#M` or `owner/repo#M`:
    - Parse into `parent_owner`, `parent_repo`, `parent_n`.
    - Resolve node IDs and call `addSubIssue` (see "Epic link step" below).
-   - Add a `Parent: owner/repo#M` line at the top of the story body (per gh-issue-conventions order), then update the issue body via `gh issue edit <N> --repo "$REPO" -F -`.
+   - Add a `Parent: owner/repo#M` line at the top of the story body (per `sillok:gh-issue-management` body-template order), then update the issue body via `gh issue edit <N> --repo "$REPO" -F -`.
 
 6. Compute slug. Branch/worktree names stay ASCII/English even when the story title is Korean (or any non-English language). **If `<title>` is not already English**, translate it into a concise English phrase (3–6 words) first and pass THAT — not the original title — as the slug argument. The issue keeps its original-language title.
 

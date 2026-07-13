@@ -18,7 +18,7 @@ frontmatter() {
   awk 'NR==1 && $0=="---"{inside=1; next} inside && $0=="---"{exit} inside{print}' "$1"
 }
 
-expected=(sillok-start sillok-add sillok-design sillok-execute sillok-end sillok-story sillok-init sillok-epic)
+expected=(sillok-start sillok-add sillok-design sillok-execute sillok-end sillok-story sillok-init sillok-epic sillok-prd)
 
 checked=0
 for name in "${expected[@]}"; do

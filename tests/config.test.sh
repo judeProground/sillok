@@ -77,6 +77,79 @@ JSON
 rm -rf "$TMPDIR_PROJECT"
 pass "project config overrides plugin default"
 
+echo "test: local override beats project config (present key wins, incl. empty string)"
+TMPDIR_LOCAL=$(mktemp -d)
+(
+  cd "$TMPDIR_LOCAL"
+  git init -q
+  mkdir -p .claude/sillok
+  cat > .claude/sillok/workflow.config.json <<JSON
+{ "version": 1, "repo": "x/y", "baseBranch": "main", "qaBranch": "deploy/qa" }
+JSON
+  # (a) no local file yet → project value stands.
+  val=$(sillok_config qaBranch)
+  [[ "$val" == "deploy/qa" ]] || { echo "FAIL(a): expected deploy/qa, got '$val'"; exit 1; }
+
+  # (b) local override with qaBranch:"" → opt-out; empty string WINS (not fall-through).
+  cat > .claude/sillok/workflow.config.local.json <<JSON
+{ "qaBranch": "" }
+JSON
+  val=$(sillok_config qaBranch)
+  [[ "$val" == "" ]] || { echo "FAIL(b): expected empty opt-out, got '$val'"; exit 1; }
+  # a key NOT in the local file is untouched.
+  val=$(sillok_config baseBranch)
+  [[ "$val" == "main" ]] || { echo "FAIL(b2): expected main, got '$val'"; exit 1; }
+
+  # (c) local override with a different value → that value wins.
+  cat > .claude/sillok/workflow.config.local.json <<JSON
+{ "qaBranch": "deploy/qa/mine" }
+JSON
+  val=$(sillok_config qaBranch)
+  [[ "$val" == "deploy/qa/mine" ]] || { echo "FAIL(c): expected deploy/qa/mine, got '$val'"; exit 1; }
+)
+rm -rf "$TMPDIR_LOCAL"
+pass "local override wins, empty-string opt-out works, untouched keys unaffected"
+
+echo "test: local override applies to nested scalar (automation.fullAuto)"
+TMPDIR_LOCALNEST=$(mktemp -d)
+(
+  cd "$TMPDIR_LOCALNEST"
+  git init -q
+  mkdir -p .claude/sillok
+  cat > .claude/sillok/workflow.config.json <<JSON
+{ "version": 1, "repo": "x/y", "baseBranch": "main", "automation": { "fullAuto": true } }
+JSON
+  val=$(sillok_config automation.fullAuto)
+  [[ "$val" == "true" ]] || { echo "FAIL(nest-a): expected true, got '$val'"; exit 1; }
+  cat > .claude/sillok/workflow.config.local.json <<JSON
+{ "automation": { "fullAuto": false } }
+JSON
+  val=$(sillok_config automation.fullAuto)
+  [[ "$val" == "false" ]] || { echo "FAIL(nest-b): expected local false to win, got '$val'"; exit 1; }
+)
+rm -rf "$TMPDIR_LOCALNEST"
+pass "local override wins for nested automation.fullAuto"
+
+echo "test: local override does NOT apply to array keys (scalar-only by design)"
+TMPDIR_LOCALARR=$(mktemp -d)
+(
+  cd "$TMPDIR_LOCALARR"
+  git init -q
+  mkdir -p .claude/sillok
+  cat > .claude/sillok/workflow.config.json <<JSON
+{ "version": 1, "repo": "x/y", "baseBranch": "main", "labels": { "areas": ["auth", "wallet"] } }
+JSON
+  cat > .claude/sillok/workflow.config.local.json <<JSON
+{ "labels": { "areas": [] } }
+JSON
+  areas=()
+  while IFS= read -r line; do areas+=("$line"); done < <(sillok_config_array labels.areas)
+  # array reader ignores the local override → project array stands.
+  [[ "${#areas[@]}" == "2" ]] || { echo "FAIL(arr): array override should be ignored, got ${#areas[@]}"; exit 1; }
+)
+rm -rf "$TMPDIR_LOCALARR"
+pass "array keys ignore the local override (project value stands)"
+
 echo "test: array key absent in project config falls back to template default"
 TMPDIR_ARRFALL=$(mktemp -d)
 (

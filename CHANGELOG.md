@@ -6,6 +6,127 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [4.0.0] — 2026-07-13
+
+**Rules → skills migration (story #100).** sillok's always-mounted rule files
+(`@`-imported into every consumer session's `CLAUDE.md`) were reclassified: only
+what must fire without being invoked stays a resident rule (`sillok-workflow.md`,
+`commit-conventions.md`, `output-language.md`); the rest moved into their skill
+homes and load on trigger. This cuts the always-on context from ~8,000 to ~2,650
+tokens (~67%). No command or workflow contract changed, and skill triggering was
+re-verified at 70/70 (see `evals/trigger/README.md`) — but the operational model
+(how conventions reach the model) changed and the installed rule set is different,
+hence the major bump.
+
+**Consumers must re-run `/sillok-init` to realize this** — it refreshes the rule
+files to their pointer stubs and prunes the now-dead `@`-import lines from
+`CLAUDE.md` (via the new import-removal pass). Projects that don't re-init keep the
+old full rules and behave exactly as before (no breakage, just no savings).
+
+### Added
+- `/sillok-init` gained a CLAUDE.md **import-removal pass** (init-bootstrap Step 8,
+  now a reconcile = backfill + remove-dead): `@.claude/sillok/rules/*.md` import
+  lines no longer in the template snippet are pruned from a consumer's `CLAUDE.md`
+  on re-init (exact-match + snippet-absent double guard, so user-custom imports are
+  never touched). This is what lets removed/stubbed rules stop consuming context.
+  `refresh-rules.sh` keeps its "never deletes" contract; upstream-removed rules are
+  left as 1-line pointer stubs so refresh overwrites the consumer copy. (#104)
+
+### Changed
+- `templates/rules/{pr-convention,worktree-setup,spec-driven-development}.md` moved into
+  their skill homes and dropped from the always-on CLAUDE.md `@`-import
+  (`templates/claude-md-snippet.md`, now 3 lines): the PR title/body/`Closes #N`/merge-strategy
+  rules (pr-convention) live in the `sillok:end` skill (`SKILL.md` + `pr-body-templates.md`);
+  the `worktree.copyFiles` file-pattern table (worktree-setup) lives in `sillok:start`'s
+  Step 10; the no-silent-drift consent gate (spec-driven-development) lives in
+  `sillok:execute`'s Step 8, and the spec-file-wins drift policy was dropped as a duplicate
+  of `sillok:design`'s existing Step 8 wording. All three rule files are reduced to
+  ~4-line browse-only pointer stubs. The force-push-forbidden rule — previously only in
+  pr-convention — was relocated (not dropped) to `sillok-workflow.md`'s "Don't bypass"
+  section, which stays a resident, always-imported rule. `output-language.md` is
+  intentionally kept resident (not moved) since it applies across every stage. (#108)
+
+- `templates/rules/gh-issue-conventions.md` merged into the `sillok:gh-issue-management`
+  skill — the skill is now the single source of truth for issue title/body
+  conventions, Issue Types, Projects v2 stage, priority, nature/area labels,
+  milestone naming, and sub-issue linking. The four full copy-pasteable issue-body
+  templates (Feature/Task, Story, Epic, Bug) moved to a new
+  `skills/gh-issue-management/body-templates.md` subfile. The rule file itself is
+  reduced to a ~5-line pointer stub and dropped from the always-on CLAUDE.md
+  `@`-import (`templates/claude-md-snippet.md`); existing consumers lose the stale
+  import line on re-init via the #104 import-removal pass. (#106)
+
+## [3.6.0] — 2026-07-08
+
+### Fixed
+- `lib/epics.sh` — `sillok_open_epics_section` no longer leaks exit 1 when
+  epics exist but the repo has no open local stories (a bare `[ -n ... ] &&
+  printf` as the function's last command), which killed `set -e` callers
+  (precompute-start/add/story) right after the Open epics block, dropping the
+  Sprint milestone and Language sections. (#99)
+- `/sillok-epic` now adds the created Epic to the configured project board and
+  sets its Status to Todo (Step 7b, non-fatal — same `sillok_project_item_add`
+  + `sillok_project_status_set` path `/sillok-start`/`/sillok-story` use);
+  Epics were created off-board and had to be added by hand. (#99)
+- `prd-snapshot.sh` no longer takes the PRD body's first H1 as the frontmatter
+  `title` — PRD bodies start with the section header `# 배경` by template
+  design, so every snapshot was titled "배경". `--title <피처명>` added
+  (falls back to `--name`); interview task-type labels `MainTask`/`SubTask`
+  are normalized to `Main`/`Sub`. Found in the gihoek canary E2E (#86).
+
+### Added
+- `sillok:fable-orchestra` — a standalone, prompt-only skill (no scripts) for
+  the "Fable orchestrator" pattern: on a Fable main-loop session, keep Fable a
+  thin orchestrator (routing/decisions/review) and delegate by `model × effort`
+  — bulk coding and long-document drafting to Sonnet workers, hard/long (xhigh)
+  reasoning to Opus workers — so most tokens bill at the cheaper worker rate.
+  Carries a cost/intelligence/taste rankings table with quality-escalation
+  standing permission ("defaults, not limits"; intelligence > taste > cost),
+  Fable effort caps (high at most, never xhigh/max), a long-document delegation
+  signal, and a per-stage sillok routing table (design: Fable brainstorms,
+  sonnet drafts the spec doc; execute: superpowers tiers pinned sonnet/opus).
+  Not a routed stage, but `sillok:workflow` gains Step 2b: on a Fable session
+  it applies this skill at chain entry. (#97)
+- `/sillok-prd` — record a completed PRD markdown into epicRepo as
+  `<prd.basePath>/<domain>/<name>/prd.md` via Contents-API upsert (record-only
+  snapshot; Notion stays SoT). Outputs a commit-pinned permalink for
+  `/sillok-epic`. New config keys: `prd.basePath` (default `projects`),
+  `prd.domains` (default basic/pro/ai-native/infra/common). (#64)
+- **`prd-snapshot.sh` now writes the PRD-convention frontmatter `/sillok-epic`
+  validates (#64).** New optional flags `--feature-goal`, `--task-type`,
+  `--sprint`, `--dev-period`, `--owners`, `--metric`, `--release-date`,
+  `--eval-dates` map 1:1 to `prd-template.md`'s required
+  `feature_goal`/`task_type`/`sprint`/`dev_period`/`owners`/`metric`/
+  `release_date`/`eval_dates` keys (`status` already existed via `--status`),
+  so a PRD snapshotted with them filled in can pass straight through
+  `/sillok-epic`'s validation. All remain optional and are preserved across
+  upserts the same way `epic`/`review_at` are — omitting a flag on update
+  keeps the previously-snapshotted value. Also adds `common` to the default
+  `prd.domains` allow-list (fixes gihoek `prd-creator` → `/sillok-prd` →
+  `/sillok-epic` failing at the Epic step for missing frontmatter keys and
+  for PRDs filed under a `common` domain).
+
+## [3.5.3] — 2026-07-03
+
+### Fixed
+- **`workflow.config.local.json` scaffold now states defaults instead of misleading example values (#82).** The 3.5.2 scaffold parked per-user keys under `__examples` as concrete values (`qaBranch: ""`, `automation.fullAuto: false`, `language: "en"`), which read like the active defaults — and `language: "en"` wasn't even the real default (`"auto"` is). Replaced with an `__overridable` map of description strings that state each key's actual DEFAULT (`qaBranch` `""`, `automation.fullAuto` `false`, `language` `"auto"`) and the exact top-level line to add. Still inert and still never read by config.sh.
+
+## [3.5.2] — 2026-07-03
+
+### Changed
+- **`/sillok-init` now scaffolds `workflow.config.local.json` (#80).** 3.5.1 only gitignored the per-user override file, so developers never discovered it existed. Init now also **creates** it (when absent) with a self-documenting `__doc` string and the per-user keys (`qaBranch`, `automation.fullAuto`, `language`) parked under `__examples`. The file ships **inert** — config.sh reads overrides only from the top level, and the examples sit under a key it never reads, so a fresh file changes nothing until a developer copies an example up to the top level. Re-init never clobbers a customized file.
+
+## [3.5.1] — 2026-07-03
+
+### Added
+- **Per-user local config override (#78).** New optional `.claude/sillok/workflow.config.local.json` — a gitignored, per-developer file that overrides the committed `workflow.config.json` for **scalar** keys. It exists because the committed config is team-shared, but a few keys are personal working-style preferences: `qaBranch` (opt out of `/sillok-end`'s QA auto-merge with `{"qaBranch": ""}`), `automation.fullAuto`, `language`. A key **present** in the local file wins even when its value is `""` (an empty string is a real override, not "unset") — the project/template layers still treat `""` as unset. Scalar-only by design: `sillok_config_array` ignores the local layer, since array keys (`labels.*`) are shared workflow structure. `/sillok-init` adds the local file to `.gitignore` (idempotent).
+
+## [3.5.0] — 2026-07-03
+
+### Added
+- **QA-branch auto-merge in `/sillok-end` (#76).** New `qaBranch` config key (default `""` = disabled). When set, `/sillok-end` merges the current branch into that branch (server-side, via the GitHub merges API) right after opening the PR — automating the team's flow of promoting ended work into a shared `deploy/qa`-style branch. New `scripts/qa-merge.sh` owns the mechanics and is **non-fatal**: a conflict / missing branch / API error warns (with manual-resolution steps on conflict) but never blocks the PR, the `In QA` transition, or the issue-body update. Applies to all end modes (single-issue, umbrella, story-finalize). `precompute-end.sh` reports a `### QA branch` status section.
+- **`/sillok-init` detects and offers a QA branch (#76).** phase1 scans remote branches for `qa`/`deploy` candidates (`QA_CANDIDATES`); the skill asks once — like the project-URL and area-label prompts — which to set as `qaBranch`. Skipped when no candidates, under auto-mode, or when `qaBranch` is already set (preserve rule). Existing consumers pick up the key via `migrate-config.sh` on re-init.
+
 ## [3.4.0] — 2026-06-29
 
 ### Refactored

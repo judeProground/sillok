@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is **sillok** — a Claude Code plugin, not an application that uses one. The unit of shipping is a `.claude-plugin/plugin.json` manifest plus the slash commands, skills, scripts, schema, and rule templates that get installed into _other_ projects via `/plugin marketplace add judeProground/sillok`. The repo doubles as its own single-plugin marketplace: the root `.claude-plugin/marketplace.json` registers this plugin with `source: "./"`.
 
-Concretely, the plugin is eight thin wrapper commands under `commands/` (pointer-only; each invokes its stage skill), twelve skills under `skills/` — eight workflow skills (`workflow` orchestrator + `start`/`add`/`design`/`execute`/`end`/`story`/`init` stage skills), one standalone skill (`epic`), and three reference skills (`verify-gate`, `verify-spec-gate`, `gh-issue-management`) — a SessionStart hook under `hooks/`, helper bash scripts under `scripts/`, a JSON config schema in `schema/v1.json`, and the rule + config templates copied into consumer projects by `/sillok-init` (under `templates/`).
+Concretely, the plugin is eight thin wrapper commands under `commands/` (pointer-only; each invokes its stage skill), fourteen skills under `skills/` — eight workflow skills (`workflow` orchestrator + `start`/`add`/`design`/`execute`/`end`/`story`/`init` stage skills), three standalone skills (`epic`, `prd`, `fable-orchestra`), and three reference skills (`verify-gate`, `verify-spec-gate`, `gh-issue-management`) — a SessionStart hook under `hooks/`, helper bash scripts under `scripts/`, a JSON config schema in `schema/v1.json`, and the rule + config templates copied into consumer projects by `/sillok-init` (under `templates/`).
 
 Do **not** run `/sillok-init` inside this repo — it's for downstream projects, not for the plugin's own development.
 
@@ -62,8 +62,11 @@ Stage chaining is owned by the `sillok:workflow` orchestrator skill: stage skill
 
 Config precedence:
 
-1. `<git-root>/.claude/sillok/workflow.config.json` (consumer project)
-2. `${CLAUDE_PLUGIN_ROOT}/templates/workflow.config.json` (plugin fallback; when the env var is unset, config.sh derives the plugin root from its own file location — #45)
+1. `<git-root>/.claude/sillok/workflow.config.local.json` (per-user override, **gitignored** — `sillok-init` adds it to `.gitignore`)
+2. `<git-root>/.claude/sillok/workflow.config.json` (consumer project, committed)
+3. `${CLAUDE_PLUGIN_ROOT}/templates/workflow.config.json` (plugin fallback; when the env var is unset, config.sh derives the plugin root from its own file location — #45)
+
+The **local override** (layer 1, added #78) is per-developer and never committed. It exists because `workflow.config.json` is team-shared, but a few keys are personal working-style preferences — `qaBranch` (opt out of `/sillok-end`'s QA auto-merge), `automation.fullAuto`, `language`. Semantics differ from the other layers **on purpose**: a key **present** in the local file wins *even when its value is `""`* (an empty string is a real override — "turn qaBranch off for me" — not "unset"), whereas the project/template layers treat `""` as unset and fall through. This present-wins path is **scalar-only** (`sillok_config`); `sillok_config_array` deliberately ignores the local layer, since the array keys (`labels.*`) are team structure, not personal preference.
 
 Inside this repo's own tests, `CLAUDE_PLUGIN_ROOT` is set to the plugin root (the repo root, derived in each test as the parent of `tests/`) so the template acts as the default; test cases construct temp projects with their own `.claude/sillok/workflow.config.json` to exercise the override path (see `tests/config.test.sh`).
 
@@ -90,6 +93,7 @@ If touching any of these, keep the three in sync — drift breaks the parent-chi
 `/sillok-init` and `scripts/bootstrap-labels.sh` are explicitly idempotent. Re-running must:
 
 - Deep-merge an existing `workflow.config.json` via `scripts/migrate-config.sh` (add missing template keys, preserve user values, arrays verbatim).
+- Scaffold `.claude/sillok/workflow.config.local.json` (#80) only when absent — never clobber a developer's customized override. The scaffold is inert (per-user keys documented under an `__overridable` key config.sh never reads, as default-stating description strings rather than value blocks that could read as active settings — #82), so a fresh file changes nothing.
 - Not duplicate the CLAUDE.md import block (grep for the marker line first).
 - Refresh rule files from `templates/rules/` via `scripts/refresh-rules.sh` (overwrite when content differs).
 - Not error on `gh label create` when labels already exist (mask with `|| true`).
@@ -130,9 +134,11 @@ v2.0 replaced label-based type/stage tracking with GitHub-native primitives:
 | `precompute-add.sh` | Lightweight state derivation for /sillok-add (no branch guard, no milestone section) |
 | `precompute-story.sh` | State derivation for /sillok-story: branch-mode classification (new vs. promote) + open epics from epicRepo |
 | `precompute-epic.sh` | State derivation for /sillok-epic: resolves epicRepo, classifies the source (path/picker/notion), and discovers `*/prd.md` candidates in epicRepo via a tree walk |
+| `prd-snapshot.sh` | Record-only Contents API upsert of a completed PRD markdown into epicRepo at `<prd.basePath>/<domain>/<name>/prd.md` (no PR — commits straight to epicRepo's default branch); composes/quotes frontmatter, preserving `epic`/`review_at` across updates. Used by /sillok-prd and gihoek's prd-creator |
 | `init-bootstrap.sh` | Two-phase deterministic bootstrap for /sillok-init: `phase1` (Steps 1–8: detect repo/stack/copyFiles, write config, rules, shims, CLAUDE.md, emit project-tree) + `phase2` (Steps 9–10: labels, project + priority field, spec/plan dirs). Prints a `KEY=value` status block on stdout the skill reads with a field-reader (Step 8b area classification + URL prompt stay in the skill, between the phases) |
 | `create-issue.sh` | Creates a GH issue, branching on `orgMode` (org: `-f type=` + board Priority; user: type/priority labels) + the API-version header; prints the issue URL. Shared by /sillok-start, /sillok-add, /sillok-story; /sillok-epic passes `--plain` (bare create — bypasses the orgMode fork since epicRepo is cross-repo and its Epic type is PATCHed non-fatally after) |
 | `setup-feature-worktree.sh` | Creates worktree + branch for a new issue |
+| `qa-merge.sh` | Server-side merge of the feature branch into the configured `qaBranch` (called by /sillok-end Step 6b); non-fatal — every outcome exits 0 so the PR flow is never blocked |
 | `bootstrap-labels.sh` | Idempotent GitHub label creation |
 | `project-tree.sh` | Emits a pruned directory tree (junk-removed, no depth cap) for area-label classification |
 | `detect-stack.sh` | Detects project tech stack (language, framework) |
@@ -179,7 +185,7 @@ A "does it still work?" pass is necessary but not sufficient for a refactor PR �
 
 ## Release process
 
-Versions live in **three** places that must move together. Bumping the git tag alone is not sufficient — Claude Code reads manifest versions to detect updates:
+Versions live in **three** places that must move together. Bumping git tag alone is not sufficient — Claude Code reads manifest versions to detect updates:
 
 - `.claude-plugin/plugin.json` → `version`
 - `.claude-plugin/marketplace.json` → the sillok entry's `version`
@@ -196,12 +202,14 @@ Workflow skills (story #15 refactor):
 - `sillok:add` — backlog capture: issue + Issue Type + self-assign + status Backlog; NO branch/worktree/milestone. Outside the workflow chain (never auto-routed, no handoff); promotion path is `/sillok-start <N>` adopt mode.
 - `sillok:design` — brainstorm + spec, paste spec into issue body, status In Design (subfile: `story-mode.md` for story-design).
 - `sillok:execute` — write plan, subagent-driven execution, end-of-plan verify-gate, status In Progress.
-- `sillok:end` — push, PR per pr-convention, status In QA, parent legacy-checkbox update; never auto-merges (subfile: `pr-body-templates.md`).
+- `sillok:end` — push, PR per its own templates, status In QA, parent legacy-checkbox update; never auto-merges (subfile: `pr-body-templates.md`).
 - `sillok:story` — create or promote-to a story (parent issue + integration branch + worktree); auto-suggests open Epics from `epicRepo` and accepts `--parent <epicRepo#N>` to attach the story as a cross-repo sub-issue via `addSubIssue` (completing epic → story → feature).
 - `sillok:init` — project bootstrap; idempotent; outside the workflow chain (always interactive, never auto-routed).
 - `sillok:epic` — validate a team PRD and create a light Epic in `epicRepo` for cross-repo parenting; outside the workflow chain (never auto-routed by `sillok:workflow`, no stage handoff). Reads PRDs at `<category>/<project-name>/prd.md` in `epicRepo` (generic `*/prd.md` discovery, no flat dir / hard-coded categories); invoked via `/sillok-epic <path>/prd.md` or `/sillok-epic <notion-url> <category>/<project>`.
+- `sillok:prd` — record a completed PRD markdown into `epicRepo` as a `prd.md` snapshot via `prd-snapshot.sh` (Contents API upsert, no PR — review happens in Notion, not a git PR); outside the workflow chain (never auto-routed by `sillok:workflow`, no stage handoff). Invoked via `/sillok-prd`; the permalink it outputs is for humans/records, while `/sillok-epic <basePath>/<domain>/<name>/prd.md` (the epicRepo path) is what feeds Epic creation.
+- `sillok:fable-orchestra` — standalone, prompt-only skill (no scripts/subfiles) for the "Fable orchestrator" pattern: on a Fable main-loop session, keep Fable a thin orchestrator and delegate by `model × effort` (Sonnet workers for bulk coding + long-document drafting, Opus workers for hard/long reasoning), with a cost/intelligence/taste rankings table and quality-escalation permission. Not a routed stage (no stage handoff), but `sillok:workflow` Step 2b applies it at chain entry on a Fable session; outside sillok flows its trigger description auto-fires on dispatch intent.
 
-Stage skills (everything above except `workflow`) carry `user-invocable: false` and deferral-marker descriptions leading with "Internal sillok stage skill — enter via the `/sillok-<stage>` command or a `sillok:workflow` handoff" — pointing entry at the wrappers and the orchestrator.
+The seven stage skills (`start`/`add`/`design`/`execute`/`end`/`story`/`init`) plus the `epic` and `prd` standalone skills carry `user-invocable: false` — entered via their `/sillok-*` command wrapper (and, for stage skills, a `sillok:workflow` handoff). The stage skills additionally lead their description with the "Internal sillok stage skill — enter via the `/sillok-<stage>` command or a `sillok:workflow` handoff" deferral marker, pointing entry at the wrappers and the orchestrator. `fable-orchestra` and the three reference skills omit `user-invocable: false`; `fable-orchestra` is invoked directly as `sillok:fable-orchestra`.
 
 Reference skills:
 

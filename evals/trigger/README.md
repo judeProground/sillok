@@ -53,3 +53,28 @@ proxy score, editing can only regress a currently-correct boundary.
 
 Next time an auto-fire description changes, re-run this check; only edit wording
 once a *failing* query pins a confusion to specific text.
+
+## Result (2026-07-13, post rules→skills migration, story #100)
+
+Re-ran the panel method after #100 moved GH-issue conventions out of the
+always-mounted `gh-issue-conventions.md` rule into the `sillok:gh-issue-management`
+skill (and moved `pr-convention`/`worktree-setup`/`spec-driven-development` into
+the end/start/execute skills). The competitive field is now larger — `fable-orchestra`
+and `prd` exist since the v3.2.0 baseline.
+
+With all skills present: **70/70 correct, precision = recall = accuracy = 1.00** —
+identical to the v3.2.0 baseline. All 9 `gh-issue-management` positives still fire:
+moving the schema into the skill did not weaken triggering, because the skill's
+description enumerates the migrated content (title/body conventions, Issue Types,
+priority, nature labels, milestone naming, cross-repo linking). No false positives
+from the new skills — `fable-orchestra` is double-gated ("on a Fable session" AND
+model×effort routing) so it grabs no generic dispatch/coding query, and `prd` is
+`user-invocable: false` so it cannot auto-fire.
+
+Known nuance (pre-existing, not a regression): terse backlog utterances
+("백로그에 추가해줘", "make a backlog item") route to `gh-issue-management` (a
+convention-full issue) rather than the `add` stage's no-branch/Backlog treatment,
+since `add` is non-auto-fire and `workflow`'s description is scoped to
+feature-lifecycle. Optional future refinement: name backlog capture in `workflow`'s
+description. Descriptions left **as-is** — migration preserved triggering at a
+perfect proxy score.

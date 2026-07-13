@@ -4,12 +4,17 @@
 
   "repo": "",
   "baseBranch": "main",
+  "qaBranch": "",
   "branchPrefix": "{type}/issue-",
 
   "language": "auto",
 
   "epicRepo": "",
 
+  "prd": {
+    "basePath": "projects",
+    "domains": ["basic", "pro", "ai-native", "infra", "common"]
+  },
 
   "orgMode": false,
 

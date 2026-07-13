@@ -89,6 +89,18 @@ phase1() {
 
   # If REPO is empty, the user must fill `repo` in the generated config manually.
 
+  # --- Step 2b: Detect QA/deploy branch candidates ------------------------
+  # Deterministic surface only — the skill asks the user which (if any) to use
+  # as `qaBranch`. Match remote branches whose name contains 'qa' or 'deploy'
+  # (deploy/qa, deploy/qa/test, qa, release/qa, …). Empty when none / no remote.
+  QA_CANDIDATES=""
+  while IFS= read -r ref; do
+    [[ -n "$ref" ]] || continue
+    QA_CANDIDATES="${QA_CANDIDATES:+$QA_CANDIDATES,}$ref"
+  done < <(git ls-remote --heads origin 2>/dev/null \
+    | sed 's#.*refs/heads/##' \
+    | grep -iE '(^|/)(qa|deploy)' || true)
+
   # --- Step 2a: Detect org mode -------------------------------------------
   OWNER_TYPE=$(gh api "/repos/$REPO" --jq '.owner.type' 2>/dev/null || echo "User")
   if [[ "$OWNER_TYPE" == "Organization" ]]; then
@@ -252,6 +264,7 @@ phase1() {
         "version": 1,
         "repo": $repo,
         "baseBranch": $baseBranch,
+        "qaBranch": "",
         "branchPrefix": $branchPrefix,
         "epicRepo": "",
         "orgMode": $orgMode,
@@ -331,10 +344,15 @@ phase1() {
       CLAUDE_MD_STATUS=fail
     fi
   elif [[ "$CLAUDE_MD_STATUS" == "ok" ]]; then
-    # Marker block already present (re-init / existing consumer): backfill any
-    # snippet @import lines that are missing, so new rules reach old projects
-    # without duplicating the block. Each missing line is appended at EOF
-    # (@import lines are position-independent). Idempotent via grep -Fxq.
+    # Marker block already present (re-init / existing consumer): RECONCILE —
+    # backfill any snippet @import lines that are missing, and remove any
+    # sillok-rule @import line in CLAUDE.md whose rule was deleted upstream.
+    # Both passes are line-level and idempotent; order between them doesn't
+    # matter since each only touches lines the other doesn't.
+
+    # Backfill: add snippet lines missing from CLAUDE.md. Each missing line is
+    # appended at EOF (@import lines are position-independent). Idempotent via
+    # grep -Fxq.
     while IFS= read -r imp; do
       [[ -n "$imp" ]] || continue
       if ! grep -Fxq -- "$imp" "$CLAUDE_MD"; then
@@ -344,6 +362,60 @@ phase1() {
         fi
       fi
     done < <(grep -E '^- @\.claude/sillok/rules/.*\.md$' "$SNIPPET")
+
+    # Removal: drop any sillok-rule @import line in CLAUDE.md that is no
+    # longer in the snippet (the rule file was removed upstream). Only lines
+    # matching the sillok/rules import regex are candidates — the marker
+    # heading, blank lines, and user-custom @import lines (different paths)
+    # are never touched. Idempotent: a line already gone stays gone.
+    if [[ "$CLAUDE_MD_STATUS" == "ok" ]]; then
+      while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        if ! grep -Fxq -- "$line" "$SNIPPET"; then
+          if ! { grep -vFx -- "$line" "$CLAUDE_MD" > "$CLAUDE_MD.tmp" && mv "$CLAUDE_MD.tmp" "$CLAUDE_MD"; }; then
+            CLAUDE_MD_STATUS=fail
+            break
+          fi
+        fi
+      done < <(grep -E '^- @\.claude/sillok/rules/.*\.md$' "$CLAUDE_MD")
+    fi
+  fi
+
+  # --- Step 8a: per-user local config override (gitignore + scaffold) -----
+  # `.claude/sillok/workflow.config.local.json` is a per-developer override that
+  # must never be committed (it lets one person opt out of team-shared settings
+  # like qaBranch). Ensure it's gitignored, idempotently.
+  GITIGNORE="$PROJECT_ROOT/.gitignore"
+  LOCAL_CFG_IGNORE=".claude/sillok/workflow.config.local.json"
+  if ! { [[ -f "$GITIGNORE" ]] && grep -Fxq -- "$LOCAL_CFG_IGNORE" "$GITIGNORE"; }; then
+    printf '%s\n' "$LOCAL_CFG_IGNORE" >> "$GITIGNORE" || true
+  fi
+
+  # Scaffold the file (only when absent — never clobber a developer's edits) so
+  # the override mechanism is discoverable: nobody uses a file they don't know
+  # exists. It ships INERT — config.sh reads override keys only from the TOP
+  # LEVEL, and this file has none. The per-user keys are DOCUMENTED under
+  # "__overridable" (a key config.sh never reads) as description strings that
+  # state each key's DEFAULT and the exact line to add. They are descriptions,
+  # NOT value blocks: showing concrete values would read as active defaults
+  # (and "" / false happen to match the real defaults, compounding the
+  # confusion), when in fact nothing here is active until a developer adds the
+  # key at the top level. Parking is also required for safety — a present
+  # top-level key wins even as "", so real keys here would silently override
+  # the team config for everyone who runs init. JSON has no comments, so these
+  # string keys carry the explanation.
+  LOCAL_CFG="$PROJECT_ROOT/.claude/sillok/workflow.config.local.json"
+  if [[ ! -f "$LOCAL_CFG" ]]; then
+    cat > "$LOCAL_CFG" <<'LOCALCFG' || true
+{
+  "__doc": "Per-user sillok overrides — gitignored, never committed, yours alone. INERT as shipped: nothing here is active. To override a setting FOR YOURSELF, add its key at the TOP LEVEL of this object; a top-level key wins over .claude/sillok/workflow.config.json even when its value is \"\" (that is how you turn a team-set qaBranch off for yourself). \"__overridable\" below documents each per-user key with its DEFAULT and the exact line to add — it is documentation only; sillok never reads it.",
+  "__overridable": {
+    "qaBranch": "DEFAULT \"\" (no QA auto-merge on /sillok-end). To opt out of a team-set QA branch, add at top level:  \"qaBranch\": \"\"",
+    "automation.fullAuto": "DEFAULT false (confirm each stage). To chain start->design->execute->end unprompted, add at top level:  \"automation\": { \"fullAuto\": true }",
+    "language": "DEFAULT \"auto\" (matches your session language). To force one, add at top level:  \"language\": \"ko\"  (or \"en\")"
+  }
+}
+LOCALCFG
   fi
 
   # --- Step 8b tree (deterministic part only) -----------------------------
@@ -355,6 +427,7 @@ phase1() {
   echo "## sillok init phase1"
   echo "REPO=$REPO"
   echo "BASE_BRANCH=$BASE_BRANCH"
+  echo "QA_CANDIDATES=$QA_CANDIDATES"
   echo "ORG_MODE=$ORG_MODE"
   echo "OWNER_TYPE=$OWNER_TYPE"
   echo "STACK=$STACK"

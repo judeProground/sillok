@@ -28,7 +28,7 @@ description_of() {
 }
 
 checked=0
-for stage in start add design execute end story init epic; do
+for stage in start add design execute end story init epic prd; do
   skill_md="$REPO_ROOT/skills/$stage/SKILL.md"
   [[ -f "$skill_md" ]] || fail "skills/$stage/SKILL.md missing — all seven stage skills must exist"
   checked=$((checked + 1))

@@ -1,6 +1,6 @@
 # Sillok Workflow
 
-GitHub-Issue-driven feature pipeline. Always use these slash commands instead of ad-hoc issue/branch/PR work — they enforce conventions defined in `gh-issue-conventions.md`, `pr-convention.md`, and `commit-conventions.md`.
+GitHub-Issue-driven feature pipeline. Always use these slash commands instead of ad-hoc issue/branch/PR work — they enforce conventions defined in the `sillok:gh-issue-management` skill, the `sillok:end` skill (PR title/body/merge rules), and `commit-conventions.md`.
 
 ## Pipeline (per feature)
 
@@ -10,6 +10,7 @@ GitHub-Issue-driven feature pipeline. Always use these slash commands instead of
 /sillok-design  → brainstorms + writes spec, pastes content into issue body, status Todo→In Design
 /sillok-execute → writes plan, dispatches subagents per task with verify-gate, status In Design→In Progress
 /sillok-end     → opens PR, status In Progress→In QA, done-note in PR body
+                        → if `qaBranch` is configured, also merges the branch into it (server-side, non-fatal)
                         → squash-merge auto-closes the issue via `Closes #N`
 ```
 
@@ -46,7 +47,7 @@ The shim files carry a `sillok-shim: true` frontmatter marker so re-running `/si
 
 `/sillok-story` creates **parent tracking** issues — Issue Type `Story` (org mode) or a `story` label (user mode) — for in-repo composites spanning ≥2 sub-feature PRs. Stories have a different body shape (Integration branch / Key decisions / Architecture / Sub-issues / Context / Non-goals) and no code-level spec/plan of their own — `/sillok-design` in story mode fills Key decisions and Architecture; sub-issues run design/execute/end individually. Then for each sub-issue: `/sillok-start --parent <story-N>`.
 
-See "Story template" in `gh-issue-conventions.md` for the body shape.
+See "Story template" in `sillok:gh-issue-management`'s `body-templates.md` for the body shape.
 
 ## Worktree note
 
@@ -57,6 +58,7 @@ Every `/sillok-start` creates `.worktrees/<N>-<slug>` and bases the branch on th
 - Don't `gh issue create` directly — use `/sillok-start` (for immediate work) or `/sillok-add` (for backlog capture) so labels, milestone, and project status are set consistently.
 - Don't manually change project status — let the commands do it.
 - Don't open PRs via `gh pr create` — use `/sillok-end` so the body uses the convention and `Closes #N` auto-closes on merge.
+- Don't force-push any branch — correct history via `git revert` or a new PR, unless the user explicitly requests it.
 
 ## Story = integration branch
 

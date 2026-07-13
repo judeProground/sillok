@@ -18,7 +18,7 @@ Continue with SKILL.md Step 6 (single review gate: architecture content + key de
 
 ## Update story body
 
-No spec file. Rebuild the story body using the Story template (per `gh-issue-conventions.md`), preserving the summary / Integration branch / Context / Non-goals from SKILL.md step 1, and inserting the brainstorming output:
+No spec file. Rebuild the story body using the Story template (per `sillok:gh-issue-management`'s `body-templates.md`), preserving the summary / Integration branch / Context / Non-goals from SKILL.md step 1, and inserting the brainstorming output:
 
 ```bash
 gh issue edit <N> -F - <<EOF

@@ -65,4 +65,9 @@ sillok_open_epics_section() {
     [ -n "$epic_candidates" ] && printf '%s\n' "$epic_candidates"
     [ -n "$local_stories" ] && printf '%s\n' "$local_stories"
   fi
+
+  # A bare `[ -n ... ] && printf` as the function's last command leaks the
+  # test's exit status as the return value — 1 whenever that list is empty,
+  # killing set -e callers (precompute-start/add/story) mid-output.
+  return 0
 }

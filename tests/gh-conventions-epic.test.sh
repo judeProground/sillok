@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Structural tests for the Epic template section of templates/rules/gh-issue-conventions.md.
+# Structural tests for the Epic template section of skills/gh-issue-management/body-templates.md.
 # The Epic body is intentionally LIGHT (Summary + Metadata + PRD link — not the full PRD inline).
 # Markdown is LLM-consumed, not runnable, so we anchor the contract via grep.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-CONV_MD="$REPO_ROOT/templates/rules/gh-issue-conventions.md"
+CONV_MD="$REPO_ROOT/skills/gh-issue-management/body-templates.md"
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
 pass() { echo "  ok: $1"; }

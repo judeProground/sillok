@@ -40,7 +40,7 @@ Spec is in the issue body (linked via `Closes #N`). Key decisions are also in th
 
 The Summary section is critical:
 
-- It is shown verbatim on the issue (auto-closed via Closes #N) — fulfilling the `Done note` requirement of `gh-issue-conventions.md`.
+- It is shown verbatim on the issue (auto-closed via Closes #N) — fulfilling the `Done note` requirement of `sillok:gh-issue-management`'s body templates.
 - It is the squash commit message when the user merges with `gh pr merge --squash` — making the project's `main` log readable.
 
 Write 2–3 substantive sentences here, not a 1-line summary.

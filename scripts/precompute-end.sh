@@ -171,6 +171,21 @@ else
   echo "$dirty" | sed 's/^/    /'
 fi
 
+# QA branch (informational — Step 6b merges into it when configured)
+echo
+echo "### QA branch"
+qa_branch=$(sillok_config qaBranch)
+if [[ -z "$qa_branch" ]]; then
+  echo "- Not configured — QA merge will be skipped."
+else
+  echo "- Configured: \`$qa_branch\`"
+  if [[ -n "$(git ls-remote --heads origin "$qa_branch" 2>/dev/null)" ]]; then
+    echo "- Exists on origin: yes"
+  else
+    echo "- Exists on origin: no ⚠️  (merge will be skipped)"
+  fi
+fi
+
 echo
 echo "### Project status"
 source "${SCRIPT_DIR}/lib/project.sh" 2>/dev/null || true
